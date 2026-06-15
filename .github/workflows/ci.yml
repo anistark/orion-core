@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      # The minimal build (no default features) must compile without async-trait.
+      - run: cargo clippy --no-default-features --all-targets -- -D warnings
+
+  test:
+    name: test (${{ matrix.rust }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test on stable (all features) and the crate's declared MSRV
+        # (rust-version in Cargo.toml). The MSRV guarantee covers the default
+        # feature set only — optional example features (e.g. the reqwest-backed
+        # `openai-example`) may carry a higher floor via their own deps.
+        include:
+          - rust: "stable"
+            features: "--all-features"
+          - rust: "1.85.0"
+            features: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all-targets ${{ matrix.features }}
+      # `--all-targets` skips doctests, so run them explicitly.
+      - run: cargo test --doc ${{ matrix.features }}

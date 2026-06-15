@@ -1,0 +1,60 @@
+[package]
+name = "orion-core"
+version = "0.5.0"
+description = "Backend-agnostic agent harness for local LLM inference"
+authors = ["Kumar Anirudha <anirudhastark@gmail.com>"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.85"
+repository = "https://github.com/anistark/orion-core"
+homepage = "https://github.com/anistark/orion-core"
+documentation = "https://docs.rs/orion-core"
+readme = "README.md"
+keywords = ["llm", "agent", "inference", "local-llm", "ai"]
+categories = ["asynchronous", "text-processing"]
+
+[features]
+default = ["tools"]
+# The `Tool` trait + the agent's tool-execution loop. Disable
+# (`--no-default-features`) to drop the `async-trait` dependency for minimal
+# consumers that only need plain chat. Tool-call *parsing* (`parse_tool_calls`,
+# `ParsedToolCall`, `ToolSchema`) stays available either way.
+tools = ["dep:async-trait"]
+# Enables the `openai_backend` example: a streaming OpenAI-compatible HTTP
+# backend. Pulls in a blocking HTTP client; off by default.
+openai-example = ["dep:reqwest"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt"] }
+log = "0.4"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = { version = "0.1", optional = true }
+reqwest = { version = "0.12", optional = true, default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
+
+[dev-dependencies]
+# Enables `#[tokio::main]` and a multi-thread runtime for examples/tests.
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# Lets integration tests implement the async `Tool` trait.
+async-trait = "0.1"
+# Property tests for pruning invariants.
+proptest = "1"
+# Benchmarks for the context pipeline.
+criterion = "0.5"
+
+# An OpenAI-compatible HTTP backend (streaming `/v1/completions`). Demonstrates
+# backend-agnosticism beyond the in-process mock. Build/run with:
+#   cargo run --example openai_backend --features openai-example
+[[example]]
+name = "openai_backend"
+required-features = ["openai-example"]
+
+[[bench]]
+name = "context_bench"
+harness = false
