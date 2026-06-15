@@ -1,5 +1,12 @@
 # orion-core
 
+[![Crates.io](https://img.shields.io/crates/v/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core)
+[![docs.rs](https://img.shields.io/docsrs/orion-core?style=flat-square)](https://docs.rs/orion-core)
+[![CI](https://img.shields.io/github/actions/workflow/status/anistark/orion-core/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/anistark/orion-core/actions/workflows/ci.yml)
+[![Downloads](https://img.shields.io/crates/d/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core)
+[![License: MIT](https://img.shields.io/crates/l/orion-core.svg?style=flat-square)](LICENSE)
+![MSRV](https://img.shields.io/badge/MSRV-1.85-blue?style=flat-square)
+
 Agent harness for local LLM inference. Backend-agnostic — bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).
 
 orion-core handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer — see [`tools`](#tools--give-the-model-abilities)).
