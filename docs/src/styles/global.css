@@ -1,0 +1,158 @@
+/* ──────────────────────────────────────────────────────────────────────
+   orion-core docs — "Celestial / Orion" design language
+
+   Layer order matters: Starlight's own styles sit in the `starlight` layer,
+   Tailwind's theme + utilities follow, and our unlayered rules below win
+   over all of them. See https://starlight.astro.build/guides/css-and-tailwind
+   ────────────────────────────────────────────────────────────────────── */
+@layer base, starlight, theme, components, utilities;
+
+@import '@astrojs/starlight-tailwind';
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* ── Design tokens ─────────────────────────────────────────────────────
+   The starlight-tailwind bridge wires Starlight's --sl-color-* variables to
+   these Tailwind scales, so overriding the scales re-skins the whole site. */
+@theme {
+  /* Typefaces */
+  --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --font-display: 'Space Grotesk', 'Hanken Grotesk', ui-sans-serif, sans-serif;
+
+  /* Accent — nebula violet (links, active nav, focus) */
+  --color-accent-50: #f1edff;
+  --color-accent-100: #e5dcff;
+  --color-accent-200: #d4c2ff;
+  --color-accent-300: #bda0ff;
+  --color-accent-400: #a585ff;
+  --color-accent-500: #9166ff;
+  --color-accent-600: #8a63ff;
+  --color-accent-700: #6736e6;
+  --color-accent-800: #4f29b4;
+  --color-accent-900: #3a1f86;
+  --color-accent-950: #1f0f54;
+
+  /* Gray — blue-black "void" neutrals (not pure black) */
+  --color-gray-50: #f6f8fc;
+  --color-gray-100: #eef1f9;
+  --color-gray-200: #e7eaf6;
+  --color-gray-300: #b9c0d8;
+  --color-gray-400: #969fbe;
+  --color-gray-500: #5a6691;
+  --color-gray-600: #3b4670;
+  --color-gray-700: #232a45;
+  --color-gray-800: #0e1220;
+  --color-gray-900: #080a12;
+  --color-gray-950: #05060d;
+
+  /* Signature duotone — Orion's belt: star-cyan → nebula-violet */
+  --orion-star: #67e8f9;
+  --orion-nebula: #a78bff;
+  --orion-glow: linear-gradient(120deg, #67e8f9 0%, #a78bff 100%);
+}
+
+/* ── Typography ─────────────────────────────────────────────────────── */
+.sl-markdown-content :is(h1, h2, h3, h4),
+.content-panel h1,
+h1#_top,
+.site-title {
+  font-family: var(--font-display);
+  letter-spacing: -0.018em;
+}
+
+.sl-markdown-content :is(h1, h2) {
+  font-weight: 700;
+}
+
+/* Brand wordmark in the header */
+.site-title {
+  font-weight: 700;
+  font-size: var(--sl-text-lg);
+}
+
+/* ── Ambient void (dark theme only) ─────────────────────────────────────
+   Two faint nebula glows over the page background. Static — no twinkle —
+   so it reads as atmosphere, not animation. */
+[data-theme='dark'] {
+  --orion-bg-glow:
+    radial-gradient(900px 520px at 88% -8%, rgba(167, 139, 255, 0.10), transparent 60%),
+    radial-gradient(680px 460px at 2% -4%, rgba(103, 232, 249, 0.06), transparent 55%);
+}
+[data-theme='dark'] body {
+  background-image: var(--orion-bg-glow);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* ── Links: gradient hover underline ─────────────────────────────────── */
+.sl-markdown-content a:not(:where(.not-content *)) {
+  text-decoration-color: color-mix(in srgb, var(--orion-nebula) 55%, transparent);
+  text-underline-offset: 0.18em;
+  transition: text-decoration-color 0.15s ease;
+}
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  text-decoration-color: var(--orion-star);
+}
+
+/* ── Sidebar: Orion's-belt active marker ─────────────────────────────────
+   The current page gets a faint nebula wash and three stacked "belt" stars. */
+#starlight__sidebar a[aria-current='page'] {
+  position: relative;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--orion-nebula) 16%, transparent), transparent 78%);
+  border-radius: 0.3rem;
+}
+#starlight__sidebar a[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: 0.15rem;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--orion-star);
+  box-shadow:
+    0 -5px 0 var(--orion-nebula),
+    0 5px 0 var(--orion-nebula);
+  transform: translateY(-50%);
+}
+
+/* ── Surfaces ──────────────────────────────────────────────────────────── */
+:root {
+  --sl-color-bg-inline-code: var(--color-gray-800);
+}
+[data-theme='dark'] {
+  /* Slightly lift cards/asides off the void */
+  --sl-color-bg-sidebar: color-mix(in srgb, var(--color-gray-900) 70%, transparent);
+}
+
+/* Cards and link-cards: hairline nebula border + lift on hover */
+.card,
+.sl-link-card {
+  border-color: var(--color-gray-700);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+.card:hover,
+.sl-link-card:hover {
+  border-color: color-mix(in srgb, var(--orion-nebula) 60%, var(--color-gray-700));
+  transform: translateY(-2px);
+}
+.card .icon {
+  color: var(--orion-star);
+}
+
+/* ── Accessibility floor ───────────────────────────────────────────────── */
+:where(a, button, input, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--orion-star);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
