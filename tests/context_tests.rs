@@ -198,7 +198,8 @@ fn tool_schemas_deducted_from_budget() {
 
     // With tools: system block is larger
     let system_no_tools = char_counter(&template.format_system("sys", &[]));
-    let system_with_tools = char_counter(&template.format_system("sys", &[tool.clone()]));
+    let system_with_tools =
+        char_counter(&template.format_system("sys", std::slice::from_ref(&tool)));
     assert!(
         system_with_tools > system_no_tools,
         "tools increase system block size"
@@ -209,7 +210,7 @@ fn tool_schemas_deducted_from_budget() {
         &template,
         "sys",
         &messages,
-        &[tool.clone()],
+        std::slice::from_ref(&tool),
         &config_generous,
         &char_counter,
     )
