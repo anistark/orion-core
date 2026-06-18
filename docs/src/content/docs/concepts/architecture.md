@@ -3,8 +3,8 @@ title: Architecture
 description: How the agent, context pipeline, backend, and event stream fit together.
 ---
 
-orion-core sits between your application and your inference engine. You own the
-top (UI/app) and the bottom (the model runtime); orion-core owns the middle —
+Orion sits between your application and your inference engine. You own the
+top (UI/app) and the bottom (the model runtime); Orion owns the middle —
 the orchestration that turns a prompt into a streamed, tool-augmented answer.
 
 ```text
@@ -57,7 +57,7 @@ directly; it only emits events.
 
 ## Backend-agnostic by design
 
-orion-core knows nothing about your model runtime. It calls three methods on
+Orion knows nothing about your model runtime. It calls three methods on
 the [`LlmBackend`](../backend/) trait and orchestrates everything else. That
 keeps the harness identical whether you run a local GGUF model through
 llama.cpp, an MLX model on Apple silicon, or a remote OpenAI-compatible

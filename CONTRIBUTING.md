@@ -1,7 +1,7 @@
-# Contributing to orion-core
+# Contributing to Orion
 
-Thanks for your interest in improving `orion-core`! This is the backend-agnostic
-agent harness that powers [OrionPod](https://orionpod.com), and
+Thanks for your interest in improving Orion! The `orion-core` crate is the
+backend-agnostic agent harness that powers [OrionPod](https://orionpod.com), and
 contributions of all kinds are welcome.
 
 ## Getting started

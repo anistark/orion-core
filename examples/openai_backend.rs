@@ -1,9 +1,9 @@
-//! An OpenAI-compatible HTTP backend, to show that orion-core is genuinely
+//! An OpenAI-compatible HTTP backend, to show that Orion is genuinely
 //! backend-agnostic — the same `Agent` loop drives a remote server just as it
 //! drives an in-process model.
 //!
 //! It targets the streaming **`/v1/completions`** (text-completion) endpoint, so
-//! the prompt orion-core formats with its [`ChatTemplate`](orion_core::ChatTemplate)
+//! the prompt Orion formats with its [`ChatTemplate`](orion_core::ChatTemplate)
 //! is sent verbatim. That works against OpenAI itself and any compatible local
 //! server (llama.cpp `server`, vLLM, LM Studio, Ollama's OpenAI shim, …).
 //!

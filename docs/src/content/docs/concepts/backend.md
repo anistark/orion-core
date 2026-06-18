@@ -3,7 +3,7 @@ title: Backend
 description: Implement the LlmBackend trait to plug in any inference engine.
 ---
 
-orion-core is backend-agnostic. You implement one trait — `LlmBackend` — for
+Orion is backend-agnostic. You implement one trait — `LlmBackend` — for
 your inference engine, and the agent handles the orchestration above it.
 
 ## The trait
@@ -57,7 +57,7 @@ impl LlmBackend for LlamaCppBackend {
 ## No async required
 
 The backend runs on a blocking thread, so `generate` is a plain synchronous
-function — feed the prompt, loop over sampled tokens, return. orion-core owns
+function — feed the prompt, loop over sampled tokens, return. Orion owns
 all the async orchestration, so you never write `async` in your backend.
 
 ## GenerationResult

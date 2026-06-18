@@ -10,12 +10,12 @@ export default defineConfig({
   base: '/orion-core/',
   integrations: [
     starlight({
-      title: 'orion-core',
+      title: 'Orion',
       description:
         'Agent harness for local LLM inference. Backend-agnostic — bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).',
       logo: {
         src: './src/assets/orion-belt.svg',
-        alt: 'orion-core',
+        alt: 'Orion',
       },
       customCss: ['./src/styles/global.css'],
       social: [

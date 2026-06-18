@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-/// Errors from the orion-core agent harness.
+/// Errors from the Orion agent harness.
 ///
 /// All variants are serializable (via [`serde::Serialize`]) for easy transport
 /// over IPC.

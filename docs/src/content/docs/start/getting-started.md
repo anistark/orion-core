@@ -1,6 +1,6 @@
 ---
 title: Getting started
-description: Install orion-core, wire up a backend, and run your first prompt.
+description: Install Orion, wire up a backend, and run your first prompt.
 ---
 
 ## Install
@@ -22,7 +22,7 @@ The minimum supported Rust version is **1.85**.
 
 ## Your first prompt
 
-orion-core is backend-agnostic: you implement the `LlmBackend` trait for your
+Orion is backend-agnostic: you implement the `LlmBackend` trait for your
 inference engine, then drive the agent. The example below uses a mock backend
 that streams a canned reply, so the whole loop runs end to end.
 

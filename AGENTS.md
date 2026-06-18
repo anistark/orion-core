@@ -1,7 +1,8 @@
-# orion-core — Project Instructions
+# Orion — Project Instructions
 
 ## About
-orion-core is a backend-agnostic agent harness for local LLM inference. It owns
+Orion (full name: **Orion Agent Harness**) is a backend-agnostic agent harness
+for local LLM inference, published as the `orion-core` crate. It owns
 the conversation loop — context management, token budgets, streaming events, chat
 templates, and an automatic tool-execution loop — and leaves inference to you:
 implement the `LlmBackend` trait for any engine (llama.cpp, MLX, a cloud API).
