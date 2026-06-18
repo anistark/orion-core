@@ -1,4 +1,4 @@
-<!-- Thanks for contributing to orion-core! -->
+<!-- Thanks for contributing to Orion! -->
 
 ## What & why
 

@@ -1,5 +1,5 @@
 /* ──────────────────────────────────────────────────────────────────────
-   orion-core docs — "Celestial / Orion" design language
+   Orion docs — "Celestial / Orion" design language
 
    Layer order matters: Starlight's own styles sit in the `starlight` layer,
    Tailwind's theme + utilities follow, and our unlayered rules below win

@@ -3,7 +3,7 @@ title: Errors
 description: The CoreError type and its variants.
 ---
 
-orion-core uses one error type, `CoreError`, and a `CoreResult<T>` alias
+Orion uses one error type, `CoreError`, and a `CoreResult<T>` alias
 (`Result<T, CoreError>`) throughout the API.
 
 ## Variants

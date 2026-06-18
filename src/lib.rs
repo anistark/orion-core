@@ -1,4 +1,4 @@
-//! orion-core: Agent harness for local LLM inference.
+//! Orion: agent harness for local LLM inference, published as the `orion-core` crate.
 //!
 //! Provides the agent loop, context pipeline, tool execution,
 //! and event system for building AI chat interfaces on top of

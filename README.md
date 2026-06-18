@@ -1,4 +1,13 @@
-# orion-core
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/src/assets/orion-logo.png">
+    <img src="docs/src/assets/orion-icon.png" alt="Orion" width="140">
+  </picture>
+</p>
+
+<h1 align="center">Orion</h1>
+
+<p align="center"><em>The Orion Agent Harness — a backend-agnostic agent harness for local LLM inference.</em></p>
 
 [![Crates.io](https://img.shields.io/crates/v/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core)
 [![docs.rs](https://img.shields.io/docsrs/orion-core?style=flat-square)](https://docs.rs/orion-core)
@@ -7,9 +16,9 @@
 [![License: MIT](https://img.shields.io/crates/l/orion-core.svg?style=flat-square)](LICENSE)
 ![MSRV](https://img.shields.io/badge/MSRV-1.85-blue?style=flat-square)
 
-Agent harness for local LLM inference. Backend-agnostic — bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).
+Bring your own model runtime — llama.cpp, MLX, cloud APIs, anything. Orion is published as the [`orion-core`](https://crates.io/crates/orion-core) crate.
 
-orion-core handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer — see [`tools`](#tools--give-the-model-abilities)).
+Orion handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer — see [`tools`](#tools--give-the-model-abilities)).
 
 ## How It Works
 
@@ -24,7 +33,7 @@ User sends "Hello"
               → Done (model returns a tool-free answer)
 ```
 
-You implement one trait (`LlmBackend`) for your inference engine. orion-core handles everything above it.
+You implement one trait (`LlmBackend`) for your inference engine. Orion handles everything above it.
 
 ## Quick Start
 
@@ -149,7 +158,7 @@ impl LlmBackend for LlamaCppBackend {
 }
 ```
 
-The backend runs on a blocking thread — no async required. orion-core handles the async orchestration.
+The backend runs on a blocking thread — no async required. Orion handles the async orchestration.
 
 ### `messages` — Conversation Data
 
@@ -287,7 +296,7 @@ turn-aware, so a pinned message keeps its whole turn (no orphaned pairs).
 
 ### `template` — Chat Prompt Formats
 
-Each model family wants its prompt wrapped a certain way. orion-core ships a
+Each model family wants its prompt wrapped a certain way. Orion ships a
 `ChatTemplate` for the common ones and picks the right one automatically.
 
 **Supported families:** ChatML (default), Llama 3, Llama 2, Mistral / Mixtral,
@@ -436,7 +445,7 @@ Events flow upward through an unbounded channel (`tokio::sync::mpsc`). Your UI o
 
 ## Stability
 
-orion-core follows [SemVer](https://semver.org/). While `0.x`, a minor bump may
+Orion follows [SemVer](https://semver.org/). While `0.x`, a minor bump may
 carry breaking changes and a patch bump is additive/fixes only. `CoreError` and
 `AgentEvent` are `#[non_exhaustive]` — match them with a wildcard arm so new
 variants don't break your build. The MSRV is **Rust 1.85** (raised only in a

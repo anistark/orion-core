@@ -3,7 +3,7 @@ title: Templates
 description: Chat prompt formats for the supported model families.
 ---
 
-Each model family wants its prompt wrapped a certain way. orion-core ships a
+Each model family wants its prompt wrapped a certain way. Orion ships a
 `ChatTemplate` implementation for the common ones and picks the right one
 automatically.
 
