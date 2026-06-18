@@ -32,3 +32,21 @@ publish-dry:
 # Publish to crates.io
 publish:
     cargo publish
+
+# ── Docs (Astro Starlight site in docs/, uses pnpm) ──────────────────
+
+# Install docs site dependencies
+docs-install:
+    cd docs && pnpm install
+
+# Build the static docs site (output: docs/dist)
+docs-build:
+    cd docs && pnpm run build
+
+# Serve the docs locally with hot reload (http://localhost:4321/orion-core/)
+docs:
+    cd docs && pnpm run dev
+
+# Preview the production build locally
+docs-preview:
+    cd docs && pnpm run preview

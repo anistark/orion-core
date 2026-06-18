@@ -1,0 +1,49 @@
+name: Deploy docs
+
+# Builds the Astro Starlight site in docs/ and publishes it to GitHub Pages.
+# Requires Pages to be set to "GitHub Actions" as the source
+# (Settings → Pages → Build and deployment → Source).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# Permissions required to deploy to GitHub Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one Pages deployment at a time; don't cancel an in-progress run.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Build with Astro
+        uses: withastro/action@v6
+        with:
+          # Package manager (pnpm) and its version are detected from
+          # docs/pnpm-lock.yaml and the "packageManager" field in package.json.
+          path: ./docs
+          node-version: 24
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

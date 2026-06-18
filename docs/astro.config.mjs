@@ -1,0 +1,96 @@
+// @ts-check
+import { defineConfig } from 'astro/config';
+import starlight from '@astrojs/starlight';
+import tailwindcss from '@tailwindcss/vite';
+
+// Project site lives at https://anistark.github.io/orion-core/
+// https://astro.build/config
+export default defineConfig({
+  site: 'https://anistark.github.io',
+  base: '/orion-core/',
+  integrations: [
+    starlight({
+      title: 'orion-core',
+      description:
+        'Agent harness for local LLM inference. Backend-agnostic — bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).',
+      logo: {
+        src: './src/assets/orion-belt.svg',
+        alt: 'orion-core',
+      },
+      customCss: ['./src/styles/global.css'],
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/anistark/orion-core' },
+      ],
+      editLink: {
+        baseUrl: 'https://github.com/anistark/orion-core/edit/main/docs/',
+      },
+      lastUpdated: true,
+      head: [
+        {
+          tag: 'link',
+          attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+        },
+        {
+          tag: 'link',
+          attrs: { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: true },
+        },
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'stylesheet',
+            href: 'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap',
+          },
+        },
+      ],
+      expressiveCode: {
+        themes: ['github-dark', 'github-light'],
+        styleOverrides: {
+          borderRadius: '0.5rem',
+          borderColor: 'var(--color-gray-700)',
+        },
+      },
+      sidebar: [
+        {
+          label: 'Start here',
+          items: [
+            { label: 'Overview', link: '/' },
+            { label: 'Getting started', slug: 'start/getting-started' },
+          ],
+        },
+        {
+          label: 'Concepts',
+          items: [
+            { label: 'Architecture', slug: 'concepts/architecture' },
+            { label: 'Agent', slug: 'concepts/agent' },
+            { label: 'Backend', slug: 'concepts/backend' },
+            { label: 'Messages', slug: 'concepts/messages' },
+            { label: 'Events', slug: 'concepts/events' },
+            { label: 'Context & budgets', slug: 'concepts/context' },
+            { label: 'Templates', slug: 'concepts/templates' },
+            { label: 'Tools', slug: 'concepts/tools' },
+            { label: 'Errors', slug: 'concepts/errors' },
+          ],
+        },
+        {
+          label: 'Reference',
+          items: [
+            { label: 'Examples', slug: 'reference/examples' },
+            {
+              label: 'API docs (docs.rs) ↗',
+              link: 'https://docs.rs/orion-core',
+              attrs: { target: '_blank', rel: 'noopener' },
+            },
+            {
+              label: 'Crate (crates.io) ↗',
+              link: 'https://crates.io/crates/orion-core',
+              attrs: { target: '_blank', rel: 'noopener' },
+            },
+          ],
+        },
+      ],
+    }),
+  ],
+  vite: {
+    plugins: [tailwindcss()],
+  },
+});
