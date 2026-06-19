@@ -6,6 +6,11 @@ description: The orchestrator that owns conversation state and drives the prompt
 The `Agent` struct is the main entry point. It owns the conversation state and
 drives the prompt → LLM → response loop.
 
+![The agent loop: a prompt is pruned and formatted, the backend generates and streams tokens, the reply is checked for a tool call; if found, the tool runs and its result is appended before looping back, otherwise the final answer returns.](../../../assets/diagrams/orion-core-loop.png)
+
+*One call to `prompt` drives the whole cycle, looping on tool calls until the
+model returns a tool-free answer (bounded by `max_tool_iterations`, default 8).*
+
 ## Creating an agent
 
 ```rust

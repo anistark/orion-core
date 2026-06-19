@@ -1,50 +1,34 @@
 /* ──────────────────────────────────────────────────────────────────────
-   Orion docs — "Celestial / Orion" design language
+   Orion docs — brand layer on top of starlight-theme-rapide
 
-   Layer order matters: Starlight's own styles sit in the `starlight` layer,
-   Tailwind's theme + utilities follow, and our unlayered rules below win
-   over all of them. See https://starlight.astro.build/guides/css-and-tailwind
+   Rapide (Vitesse-inspired) owns the base palette, components, and code
+   themes. Everything here is the Orion brand laid over it: violet accent,
+   the celestial typefaces, the Orion's-belt sidebar marker, and the ambient
+   nebula glow.
+
+   These rules are intentionally UNLAYERED. Rapide ships its styles inside
+   `@layer rapide` (after `@layer starlight`), and unlayered CSS always wins
+   over any cascade layer — so the brand reliably overrides the theme without
+   fighting specificity. See the Rapide customization guide.
    ────────────────────────────────────────────────────────────────────── */
-@layer base, starlight, theme, components, utilities;
 
-@import '@astrojs/starlight-tailwind';
-@import 'tailwindcss/theme.css' layer(theme);
-@import 'tailwindcss/utilities.css' layer(utilities);
+/* ── Base scale ─────────────────────────────────────────────────────────
+   Bump the root font size so the whole rem-based type/space scale grows a
+   touch (16px → 17px). Tune this single value to scale everything. */
+html {
+  font-size: 106.25%;
+}
 
-/* ── Design tokens ─────────────────────────────────────────────────────
-   The starlight-tailwind bridge wires Starlight's --sl-color-* variables to
-   these Tailwind scales, so overriding the scales re-skins the whole site. */
-@theme {
-  /* Typefaces */
-  --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
-  --font-display: 'Space Grotesk', 'Hanken Grotesk', ui-sans-serif, sans-serif;
+/* ── Typefaces ──────────────────────────────────────────────────────────
+   Fonts are preconnected + loaded via <head> links in astro.config.mjs. */
+:root {
+  --orion-font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --orion-font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --orion-font-display: 'Space Grotesk', 'Hanken Grotesk', ui-sans-serif, sans-serif;
 
-  /* Accent — nebula violet (links, active nav, focus) */
-  --color-accent-50: #f1edff;
-  --color-accent-100: #e5dcff;
-  --color-accent-200: #d4c2ff;
-  --color-accent-300: #bda0ff;
-  --color-accent-400: #a585ff;
-  --color-accent-500: #9166ff;
-  --color-accent-600: #8a63ff;
-  --color-accent-700: #6736e6;
-  --color-accent-800: #4f29b4;
-  --color-accent-900: #3a1f86;
-  --color-accent-950: #1f0f54;
-
-  /* Gray — blue-black "void" neutrals (not pure black) */
-  --color-gray-50: #f6f8fc;
-  --color-gray-100: #eef1f9;
-  --color-gray-200: #e7eaf6;
-  --color-gray-300: #b9c0d8;
-  --color-gray-400: #969fbe;
-  --color-gray-500: #5a6691;
-  --color-gray-600: #3b4670;
-  --color-gray-700: #232a45;
-  --color-gray-800: #0e1220;
-  --color-gray-900: #080a12;
-  --color-gray-950: #05060d;
+  /* Wire Starlight's font tokens to the Orion typefaces. */
+  --sl-font: var(--orion-font-sans);
+  --sl-font-mono: var(--orion-font-mono);
 
   /* Signature duotone — Orion's belt: star-cyan → nebula-violet */
   --orion-star: #67e8f9;
@@ -52,37 +36,73 @@
   --orion-glow: linear-gradient(120deg, #67e8f9 0%, #a78bff 100%);
 }
 
-/* ── Typography ─────────────────────────────────────────────────────── */
+/* ── Accent: re-skin Rapide's green to Orion nebula-violet ───────────────
+   Rapide derives its accent from an OKLCH hue; we override the three accent
+   stops directly so links, active nav, and focus rings read violet. */
+:root,
+::backdrop {
+  --sl-hue-accent: 292;
+  --sl-color-accent-low: oklch(22% 0.06 292);
+  --sl-color-accent: oklch(60% 0.18 292);
+  --sl-color-accent-high: oklch(87% 0.06 292);
+}
+:root[data-theme='light'],
+[data-theme='light'] ::backdrop {
+  --sl-color-accent-low: oklch(95% 0.025 292);
+  --sl-color-accent: oklch(53% 0.19 292);
+  --sl-color-accent-high: oklch(43% 0.15 292);
+}
+
+/* ── Display type on headings + wordmark ────────────────────────────────── */
 .sl-markdown-content :is(h1, h2, h3, h4),
 .content-panel h1,
 h1#_top,
 .site-title {
-  font-family: var(--font-display);
+  font-family: var(--orion-font-display);
   letter-spacing: -0.018em;
 }
-
 .sl-markdown-content :is(h1, h2) {
   font-weight: 700;
 }
-
-/* Brand wordmark in the header */
 .site-title {
   font-weight: 700;
   font-size: var(--sl-text-lg);
 }
 
-/* ── Ambient void (dark theme only) ─────────────────────────────────────
-   Two faint nebula glows over the page background. Static — no twinkle —
-   so it reads as atmosphere, not animation. */
+/* The dark-theme logo (orion-logo.png) is a white mark on a near-black
+   (#080A12) square. `lighten` replaces anything darker than the nav with the
+   nav colour, dropping the tile entirely while the white star stays — no need
+   to edit the asset. */
+[data-theme='dark'] .site-title img {
+  mix-blend-mode: lighten;
+}
+
+/* ── Ambient void + starfield ───────────────────────────────────────────
+   Dark: two faint nebula glows + a tiled constellation starfield (white with
+   a few cyan/violet stars). Light: just the starfield, brand-tinted and very
+   faint. Static — no twinkle — so it reads as atmosphere, not animation.
+   The starfield tile is an inline SVG, repeated; glows sit on top, no-repeat. */
+:root {
+  --orion-stars: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='200'%20height='200'%3E%3Ccircle%20cx='24'%20cy='30'%20r='1'%20fill='%23a78bff'%20opacity='.16'/%3E%3Ccircle%20cx='168'%20cy='54'%20r='0.8'%20fill='%2367e8f9'%20opacity='.13'/%3E%3Ccircle%20cx='92'%20cy='120'%20r='1.2'%20fill='%23a78bff'%20opacity='.15'/%3E%3Ccircle%20cx='44'%20cy='166'%20r='0.7'%20fill='%2367e8f9'%20opacity='.12'/%3E%3Ccircle%20cx='182'%20cy='150'%20r='1'%20fill='%23a78bff'%20opacity='.14'/%3E%3Ccircle%20cx='120'%20cy='182'%20r='0.6'%20fill='%2367e8f9'%20opacity='.10'/%3E%3Ccircle%20cx='72'%20cy='72'%20r='0.5'%20fill='%23a78bff'%20opacity='.10'/%3E%3Ccircle%20cx='150'%20cy='110'%20r='0.6'%20fill='%2367e8f9'%20opacity='.10'/%3E%3C/svg%3E");
+}
 [data-theme='dark'] {
-  --orion-bg-glow:
-    radial-gradient(900px 520px at 88% -8%, rgba(167, 139, 255, 0.10), transparent 60%),
-    radial-gradient(680px 460px at 2% -4%, rgba(103, 232, 249, 0.06), transparent 55%);
+  --orion-stars: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='200'%20height='200'%3E%3Ccircle%20cx='24'%20cy='30'%20r='1'%20fill='%23fff'%20opacity='.30'/%3E%3Ccircle%20cx='168'%20cy='54'%20r='0.8'%20fill='%23fff'%20opacity='.22'/%3E%3Ccircle%20cx='92'%20cy='120'%20r='1.2'%20fill='%2367e8f9'%20opacity='.30'/%3E%3Ccircle%20cx='44'%20cy='166'%20r='0.7'%20fill='%23fff'%20opacity='.20'/%3E%3Ccircle%20cx='182'%20cy='150'%20r='1'%20fill='%23a78bff'%20opacity='.26'/%3E%3Ccircle%20cx='120'%20cy='182'%20r='0.6'%20fill='%23fff'%20opacity='.18'/%3E%3Ccircle%20cx='72'%20cy='72'%20r='0.5'%20fill='%23fff'%20opacity='.16'/%3E%3Ccircle%20cx='150'%20cy='110'%20r='0.6'%20fill='%23fff'%20opacity='.16'/%3E%3C/svg%3E");
+}
+
+body {
+  background-image: var(--orion-stars);
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  background-attachment: fixed;
 }
 [data-theme='dark'] body {
-  background-image: var(--orion-bg-glow);
-  background-attachment: fixed;
-  background-repeat: no-repeat;
+  background-image:
+    radial-gradient(900px 520px at 88% -8%, rgba(167, 139, 255, 0.10), transparent 60%),
+    radial-gradient(680px 460px at 2% -4%, rgba(103, 232, 249, 0.06), transparent 55%),
+    var(--orion-stars);
+  background-repeat: no-repeat, no-repeat, repeat;
+  background-size: auto, auto, 200px 200px;
+  background-attachment: fixed, fixed, fixed;
 }
 
 /* ── Links: gradient hover underline ─────────────────────────────────── */
@@ -117,24 +137,28 @@ h1#_top,
   transform: translateY(-50%);
 }
 
-/* ── Surfaces ──────────────────────────────────────────────────────────── */
-:root {
-  --sl-color-bg-inline-code: var(--color-gray-800);
-}
-[data-theme='dark'] {
-  /* Slightly lift cards/asides off the void */
-  --sl-color-bg-sidebar: color-mix(in srgb, var(--color-gray-900) 70%, transparent);
+/* ── Content images / diagrams ───────────────────────────────────────────
+   The blog diagrams have dark backgrounds; a hairline border + radius frames
+   them cleanly in both themes and centers them so wide diagrams sit nicely. */
+.sl-markdown-content img {
+  border-radius: 0.6rem;
+  border: 1px solid var(--sl-color-gray-5);
+  display: block;
+  margin-inline: auto;
+  /* Keep tall (portrait) diagrams from dominating the page; ratio preserved. */
+  max-height: 640px;
+  width: auto;
+  height: auto;
 }
 
-/* Cards and link-cards: hairline nebula border + lift on hover */
+/* ── Cards + link-cards: hairline nebula border + lift on hover ─────────── */
 .card,
 .sl-link-card {
-  border-color: var(--color-gray-700);
   transition: border-color 0.18s ease, transform 0.18s ease;
 }
 .card:hover,
 .sl-link-card:hover {
-  border-color: color-mix(in srgb, var(--orion-nebula) 60%, var(--color-gray-700));
+  border-color: color-mix(in srgb, var(--orion-nebula) 60%, var(--sl-color-gray-5));
   transform: translateY(-2px);
 }
 .card .icon {

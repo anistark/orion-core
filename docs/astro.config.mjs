@@ -1,7 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import tailwindcss from '@tailwindcss/vite';
+import starlightThemeRapide from 'starlight-theme-rapide';
 
 // Project site lives at https://anistark.github.io/orion-core/
 // https://astro.build/config
@@ -13,10 +13,14 @@ export default defineConfig({
       title: 'Orion',
       description:
         'Agent harness for local LLM inference. Backend-agnostic — bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).',
+      plugins: [starlightThemeRapide()],
       logo: {
-        src: './src/assets/orion-belt.svg',
+        // Split light/dark: white-on-dark mark for dark theme, outline mark for light.
+        dark: './src/assets/orion-logo.png',
+        light: './src/assets/orion-icon.png',
         alt: 'Orion',
       },
+      favicon: '/favicon-64.png',
       customCss: ['./src/styles/global.css'],
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/anistark/orion-core' },
@@ -26,6 +30,10 @@ export default defineConfig({
       },
       lastUpdated: true,
       head: [
+        {
+          tag: 'link',
+          attrs: { rel: 'apple-touch-icon', href: '/orion-core/apple-touch-icon.png' },
+        },
         {
           tag: 'link',
           attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
@@ -42,13 +50,6 @@ export default defineConfig({
           },
         },
       ],
-      expressiveCode: {
-        themes: ['github-dark', 'github-light'],
-        styleOverrides: {
-          borderRadius: '0.5rem',
-          borderColor: 'var(--color-gray-700)',
-        },
-      },
       sidebar: [
         {
           label: 'Start here',
@@ -90,7 +91,4 @@ export default defineConfig({
       ],
     }),
   ],
-  vite: {
-    plugins: [tailwindcss()],
-  },
 });

@@ -11,6 +11,11 @@ Events arrive through an unbounded channel (`tokio::sync::mpsc`). You either
 supply the sender to `agent.prompt(text, backend, tx)` or let
 `agent.prompt_stream(text, backend)` create the channel for you.
 
+![A turn emits AgentStart, then MessageDelta events as the N tokens stream in, a ContextBudget reading with used and max tokens, ToolExecStart/End when a tool runs, and finally AgentEnd.](../../../assets/diagrams/orion-core-events.png)
+
+*The shape of a turn: about a dozen typed events your UI subscribes to, so it
+never has to reach inside the harness to know what's happening.*
+
 ## A simple prompt
 
 ```text
