@@ -3,6 +3,13 @@ title: Architecture
 description: How the agent, context pipeline, backend, and event stream fit together.
 ---
 
+A model on its own is inert — it reads tokens and predicts the next ones. The
+*harness* is everything wrapped around it: the environment prompts and tools
+flow into, and useful behavior flows back out of. It's the part your users
+actually touch; the model never does directly.
+
+![A model is a network in a box; the agent harness is the environment wrapped around it, the thing users interact with.](../../../assets/diagrams/agent-harness-environment.png)
+
 Orion sits between your application and your inference engine. You own the
 top (UI/app) and the bottom (the model runtime); Orion owns the middle —
 the orchestration that turns a prompt into a streamed, tool-augmented answer.
@@ -30,6 +37,11 @@ the orchestration that turns a prompt into a streamed, tool-augmented answer.
 │  (llama.cpp, MLX, ONNX, cloud API, etc.)          │
 └──────────────────────────────────────────────────┘
 ```
+
+![The Orion stack from top to bottom: your app, the agent, the context pipeline, the LlmBackend trait, and your engine.](../../../assets/diagrams/orion-core-stack.png)
+
+*You write the top (your app) and the bottom (your engine). Orion is everything
+in between — and the only seam that matters is the `LlmBackend` trait.*
 
 ## The loop
 

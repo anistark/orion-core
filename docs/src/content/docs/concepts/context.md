@@ -8,6 +8,12 @@ fixed-size context window. The agent runs it automatically before each LLM
 call, so you rarely call it directly — but understanding it explains the
 `ContextBudget` events and the pruning behavior.
 
+![The context window has a smart zone early on where the model attends closely and a dumb zone later as it fills; strategies like compacting, forking, or handing off to a new session keep the useful part in view.](../../../assets/diagrams/context-zones.png)
+
+*Attention isn't uniform across the window: there's a smart zone early and a
+dumb zone as it fills. Pruning and summarization keep what matters in the part
+the model actually reads.*
+
 ## What it does
 
 1. **Prunes** old messages when the conversation exceeds the token budget.
