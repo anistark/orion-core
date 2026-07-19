@@ -4,7 +4,7 @@
 //! cargo run --example mock_backend
 //! ```
 //!
-//! It implements [`LlmBackend`] with no real model — just enough to show the
+//! It implements [`LlmBackend`] with no real model - just enough to show the
 //! agent loop, event streaming, and context budget working end to end.
 
 use std::io::Write;

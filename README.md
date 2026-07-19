@@ -7,7 +7,7 @@
 
 <h1 align="center">Orion</h1>
 
-<p align="center"><em>The Orion Agent Harness — a backend-agnostic agent harness for local LLM inference.</em></p>
+<p align="center"><em>The Orion Agent Harness - a backend-agnostic agent harness for local LLM inference.</em></p>
 
 [![Crates.io](https://img.shields.io/crates/v/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core)
 [![docs.rs](https://img.shields.io/docsrs/orion-core?style=flat-square)](https://docs.rs/orion-core)
@@ -16,9 +16,9 @@
 [![License: MIT](https://img.shields.io/crates/l/orion-core.svg?style=flat-square)](LICENSE)
 ![MSRV](https://img.shields.io/badge/MSRV-1.85-blue?style=flat-square)
 
-Bring your own model runtime — llama.cpp, MLX, cloud APIs, anything. Orion is published as the [`orion-core`](https://crates.io/crates/orion-core) crate.
+Bring your own model runtime - llama.cpp, MLX, cloud APIs, anything. Orion is published as the [`orion-core`](https://crates.io/crates/orion-core) crate.
 
-Orion handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer — see [`tools`](#tools--give-the-model-abilities)).
+Orion handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer - see [`tools`](#tools--give-the-model-abilities)).
 
 ## How It Works
 
@@ -55,7 +55,7 @@ let mut agent = Agent::new(AgentConfig {
 //    while generation runs, then returns when the turn is done.
 let (tx, mut rx) = mpsc::unbounded_channel::<AgentEvent>();
 
-// Consume events concurrently — forward them to your UI.
+// Consume events concurrently - forward them to your UI.
 let consumer = tokio::spawn(async move {
     while let Some(event) = rx.recv().await {
         match event {
@@ -76,15 +76,15 @@ agent.prompt("What is Rust?", backend, tx).await?;
 consumer.await?;
 ```
 
-> A complete, runnable version lives in [`examples/mock_backend.rs`](examples/mock_backend.rs) — try it with `cargo run --example mock_backend`.
+> A complete, runnable version lives in [`examples/mock_backend.rs`](examples/mock_backend.rs) - try it with `cargo run --example mock_backend`.
 
-> Don't want to manage the channel yourself? `agent.prompt_stream(text, backend)` creates it for you and hands back `(receiver, future)` — drive the future (e.g. with `tokio::join!`) while you drain the receiver.
+> Don't want to manage the channel yourself? `agent.prompt_stream(text, backend)` creates it for you and hands back `(receiver, future)` - drive the future (e.g. with `tokio::join!`) while you drain the receiver.
 
-> For a real over-the-wire backend, [`examples/openai_backend.rs`](examples/openai_backend.rs) implements `LlmBackend` against a streaming OpenAI-compatible `/v1/completions` endpoint (OpenAI, llama.cpp `server`, vLLM, LM Studio, Ollama). Run it with `cargo run --example openai_backend --features openai-example`.
+> For a real over-the-wire backend, enable the `http-backend` feature and use the supported [`OpenAiHttpBackend`](src/backends.rs) - a streaming OpenAI-compatible `/v1/chat/completions` client that works against OpenAI, llama.cpp `llama-server`, vLLM, LM Studio, and Ollama by changing only the base URL. [`examples/openai_backend.rs`](examples/openai_backend.rs) drives it end to end; run with `cargo run --example openai_backend --features http-backend`.
 
 ## Modules
 
-### `agent` — The Orchestrator
+### `agent` - The Orchestrator
 
 The `Agent` struct is the main entry point. It owns the conversation state and drives the prompt → LLM → response loop.
 
@@ -119,7 +119,7 @@ agent.replace_messages(saved_messages);     // Restore a saved conversation
 agent.abort();
 ```
 
-### `backend` — Bring Your Own LLM
+### `backend` - Bring Your Own LLM
 
 Implement the `LlmBackend` trait to plug in any inference engine:
 
@@ -158,9 +158,28 @@ impl LlmBackend for LlamaCppBackend {
 }
 ```
 
-The backend runs on a blocking thread — no async required. Orion handles the async orchestration.
+The backend runs on a blocking thread - no async required. Orion handles the async orchestration.
 
-### `messages` — Conversation Data
+### `backends` - Ready-Made Backends *(feature `http-backend`)*
+
+Don't want to implement `LlmBackend` yourself? Enable the `http-backend` feature for `OpenAiHttpBackend`, a streaming OpenAI-compatible client. One implementation targets OpenAI, llama.cpp `llama-server`, vLLM, LM Studio, and Ollama - change only the base URL:
+
+```rust
+use std::sync::Arc;
+use orion_core::backends::{OpenAiConfig, OpenAiEndpoint, OpenAiHttpBackend};
+use orion_core::LlmBackend;
+
+// Local server (no key); or `.with_api_key("sk-...")` for a cloud endpoint.
+let config = OpenAiConfig::new("http://localhost:8080/v1", "local-model");
+let backend: Arc<dyn LlmBackend> = Arc::new(OpenAiHttpBackend::new(config).unwrap());
+// agent.prompt("Hello", backend, tx).await?;
+```
+
+Tokens stream through `on_token` as they arrive; the `GenerationResult` carries the real token counts from the response's `usage` block. Transport failures surface as `CoreError::BackendUnreachable` (no response - safe to retry or fail over), while an endpoint that answers with an error status surfaces as `CoreError::Backend`. It pulls in a blocking HTTP client, so it's off by default.
+
+Choose the endpoint with `.with_endpoint(...)`. The default `OpenAiEndpoint::Chat` posts to `/v1/chat/completions`, sending Orion's formatted prompt as a single user message (the server then applies its own chat template). `OpenAiEndpoint::Completions` posts to `/v1/completions`, sending the already-templated prompt verbatim - prefer it against a local instruct model on a completion endpoint, where double-templating would corrupt the prompt.
+
+### `messages` - Conversation Data
 
 Messages support five roles covering the full agent lifecycle:
 
@@ -186,7 +205,7 @@ let result = Message::tool_result(
 
 Every message has an `id`, `timestamp`, and optional `token_count` (populated after tokenization). Assistant messages can carry `tool_calls`; tool result messages carry a `tool_result`.
 
-### `events` — Real-Time UI Updates
+### `events` - Real-Time UI Updates
 
 The agent emits events as it processes. Subscribe to these for building reactive UIs.
 
@@ -233,9 +252,9 @@ AgentEnd        { messages: [...] }
 
 | Event | When | Key Data |
 |-------|------|----------|
-| `AgentStart` | Processing begins | — |
+| `AgentStart` | Processing begins | - |
 | `AgentEnd` | All done | All new messages |
-| `TurnStart` | New LLM call begins | — |
+| `TurnStart` | New LLM call begins | - |
 | `TurnEnd` | LLM call + tools done | Assistant message, tool results |
 | `MessageStart` | Any message added | Full message |
 | `MessageDelta` | Each streamed token | `delta`, `tokens_generated`, `tokens_per_sec` |
@@ -247,12 +266,12 @@ AgentEnd        { messages: [...] }
 | `Warning` | Non-fatal issue | Warning text |
 | `Error` | Fatal error | Error text |
 
-### `context` — Token Budget Management
+### `context` - Token Budget Management
 
 Handles the hard problem of fitting a conversation into a fixed-size context window.
 
 **What it does:**
-1. **Prunes** old messages when the conversation exceeds the token budget (sliding window — keeps system prompt + most recent messages)
+1. **Prunes** old messages when the conversation exceeds the token budget (sliding window - keeps system prompt + most recent messages)
 2. **Formats** the surviving messages into a ChatML prompt string
 3. **Reports** how many tokens are used and how many messages were pruned
 
@@ -282,8 +301,8 @@ println!(
 The agent calls this automatically before each LLM call. You don't need to call it directly unless you want custom control.
 
 **Prune strategies** (`ContextConfig::prune_strategy`):
-- `SlidingWindow` (default) — drop the oldest turns first to fit the budget.
-- `Summarize` — before pruning, the agent folds the oldest overflowing turns
+- `SlidingWindow` (default) - drop the oldest turns first to fit the budget.
+- `Summarize` - before pruning, the agent folds the oldest overflowing turns
   into a single **pinned** summary message (one extra backend call), so their
   gist survives instead of being dropped. Prior summaries are consolidated, so
   exactly one accumulates. Best-effort: if summarization fails it falls back to
@@ -294,7 +313,7 @@ regardless of budget or strategy. Build one with `Message::user(id, text).pinned
 or toggle an existing message via `agent.set_pinned(message_id, true)`. Pruning is
 turn-aware, so a pinned message keeps its whole turn (no orphaned pairs).
 
-### `template` — Chat Prompt Formats
+### `template` - Chat Prompt Formats
 
 Each model family wants its prompt wrapped a certain way. Orion ships a
 `ChatTemplate` for the common ones and picks the right one automatically.
@@ -303,19 +322,19 @@ Each model family wants its prompt wrapped a certain way. Orion ships a
 Gemma / Gemma 2, Phi-3, DeepSeek (LLM chat), Command-R / Command-R+, Alpaca, and
 Vicuna.
 
-- `detect_template(gguf_template)` — inspects a GGUF metadata template string and
+- `detect_template(gguf_template)` - inspects a GGUF metadata template string and
   returns the matching impl (falling back to ChatML when nothing matches).
-- `template_from_name(name)` — resolves a manual-override name (with common
+- `template_from_name(name)` - resolves a manual-override name (with common
   aliases, e.g. `llama-2`, `phi-3`, `cohere`) to a template, or `None` for an
   unimplemented family so the caller can fall back to auto-detection.
-- `Agent::with_template(config, template)` / `agent.set_template(template)` —
+- `Agent::with_template(config, template)` / `agent.set_template(template)` -
   set or swap the template at runtime.
 
 Every template also implements the per-message and per-system formatting hooks
 the context pipeline needs for accurate token-budget accounting, and advertises
 tools through the same `tool_call` convention (see below).
 
-### `tools` — Give the Model Abilities
+### `tools` - Give the Model Abilities
 
 `Agent::prompt` drives the full cycle automatically: it injects your tool
 schemas into the system prompt, parses the model's tool calls out of its reply,
@@ -324,7 +343,7 @@ to the model until it returns a tool-free answer (bounded by
 `AgentConfig::max_tool_iterations`, default 8). Each step emits
 `ToolExecStart` / `ToolExecUpdate` / `ToolExecEnd` events.
 
-**Tool-call convention.** Templates advertise — and [`parse_tool_calls`] reads —
+**Tool-call convention.** Templates advertise - and [`parse_tool_calls`] reads -
 a fenced JSON block:
 
 ````text
@@ -395,12 +414,12 @@ orion-core = { version = "0.2", default-features = false }
 ```
 
 Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`) and `ToolSchema` stay
-available either way — only the `Tool` trait, `ToolOutput`, `ToolUpdateCallback`,
+available either way - only the `Tool` trait, `ToolOutput`, `ToolUpdateCallback`,
 and `Agent::set_tools` require the feature.
 
 > The code snippets in this README are mirrored by compile-checked [doctests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html) on the corresponding API items, so they can't silently drift from the real signatures. Run them with `cargo test --doc`.
 
-### `error` — Error Types
+### `error` - Error Types
 
 ```rust
 use orion_core::{CoreError, CoreResult};
@@ -429,12 +448,12 @@ All errors are serializable (implements `Serialize`) for easy transport over IPC
 │  └── AgentConfig (inference params, context cfg) │
 ├──────────────────────────────────────────────────┤
 │  Context Pipeline                                │
-│  └── prepare_context() — prune + template format │
+│  └── prepare_context() - prune + template format │
 ├──────────────────────────────────────────────────┤
 │  LlmBackend (trait) ← you implement this         │
-│  ├── generate() — run inference, stream tokens   │
-│  ├── tokenize_count() — count tokens             │
-│  └── is_ready() — check model status             │
+│  ├── generate() - run inference, stream tokens   │
+│  ├── tokenize_count() - count tokens             │
+│  └── is_ready() - check model status             │
 ├──────────────────────────────────────────────────┤
 │  Your inference engine                           │
 │  (llama.cpp, MLX, ONNX, cloud API, etc.)         │
@@ -447,10 +466,10 @@ Events flow upward through an unbounded channel (`tokio::sync::mpsc`). Your UI o
 
 Orion follows [SemVer](https://semver.org/). While `0.x`, a minor bump may
 carry breaking changes and a patch bump is additive/fixes only. `CoreError` and
-`AgentEvent` are `#[non_exhaustive]` — match them with a wildcard arm so new
+`AgentEvent` are `#[non_exhaustive]` - match them with a wildcard arm so new
 variants don't break your build. The MSRV is **Rust 1.85** (raised only in a
 minor release), and that guarantee covers the default feature set; optional
-example features like `openai-example` may need a newer toolchain. See
+features like `http-backend` may need a newer toolchain. See
 [CONTRIBUTING.md](CONTRIBUTING.md#stability--versioning) for the full policy.
 
 ## License

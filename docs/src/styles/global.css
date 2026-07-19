@@ -1,5 +1,5 @@
 /* ──────────────────────────────────────────────────────────────────────
-   Orion docs — brand layer on top of starlight-theme-rapide
+   Orion docs - brand layer on top of starlight-theme-rapide
 
    Rapide (Vitesse-inspired) owns the base palette, components, and code
    themes. Everything here is the Orion brand laid over it: violet accent,
@@ -8,7 +8,7 @@
 
    These rules are intentionally UNLAYERED. Rapide ships its styles inside
    `@layer rapide` (after `@layer starlight`), and unlayered CSS always wins
-   over any cascade layer — so the brand reliably overrides the theme without
+   over any cascade layer - so the brand reliably overrides the theme without
    fighting specificity. See the Rapide customization guide.
    ────────────────────────────────────────────────────────────────────── */
 
@@ -30,7 +30,7 @@ html {
   --sl-font: var(--orion-font-sans);
   --sl-font-mono: var(--orion-font-mono);
 
-  /* Signature duotone — Orion's belt: star-cyan → nebula-violet */
+  /* Signature duotone - Orion's belt: star-cyan → nebula-violet */
   --orion-star: #67e8f9;
   --orion-nebula: #a78bff;
   --orion-glow: linear-gradient(120deg, #67e8f9 0%, #a78bff 100%);
@@ -71,7 +71,7 @@ h1#_top,
 
 /* The dark-theme logo (orion-logo.png) is a white mark on a near-black
    (#080A12) square. `lighten` replaces anything darker than the nav with the
-   nav colour, dropping the tile entirely while the white star stays — no need
+   nav colour, dropping the tile entirely while the white star stays - no need
    to edit the asset. */
 [data-theme='dark'] .site-title img {
   mix-blend-mode: lighten;
@@ -80,7 +80,7 @@ h1#_top,
 /* ── Ambient void + starfield ───────────────────────────────────────────
    Dark: two faint nebula glows + a tiled constellation starfield (white with
    a few cyan/violet stars). Light: just the starfield, brand-tinted and very
-   faint. Static — no twinkle — so it reads as atmosphere, not animation.
+   faint. Static - no twinkle - so it reads as atmosphere, not animation.
    The starfield tile is an inline SVG, repeated; glows sit on top, no-repeat. */
 :root {
   --orion-stars: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='200'%20height='200'%3E%3Ccircle%20cx='24'%20cy='30'%20r='1'%20fill='%23a78bff'%20opacity='.16'/%3E%3Ccircle%20cx='168'%20cy='54'%20r='0.8'%20fill='%2367e8f9'%20opacity='.13'/%3E%3Ccircle%20cx='92'%20cy='120'%20r='1.2'%20fill='%23a78bff'%20opacity='.15'/%3E%3Ccircle%20cx='44'%20cy='166'%20r='0.7'%20fill='%2367e8f9'%20opacity='.12'/%3E%3Ccircle%20cx='182'%20cy='150'%20r='1'%20fill='%23a78bff'%20opacity='.14'/%3E%3Ccircle%20cx='120'%20cy='182'%20r='0.6'%20fill='%2367e8f9'%20opacity='.10'/%3E%3Ccircle%20cx='72'%20cy='72'%20r='0.5'%20fill='%23a78bff'%20opacity='.10'/%3E%3Ccircle%20cx='150'%20cy='110'%20r='0.6'%20fill='%2367e8f9'%20opacity='.10'/%3E%3C/svg%3E");

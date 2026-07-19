@@ -218,7 +218,7 @@ async fn max_tool_iterations_guard_trips() {
     });
     agent.set_tools(vec![Box::new(AddTool)]);
 
-    // Backend always asks for the tool — never a final answer.
+    // Backend always asks for the tool - never a final answer.
     let backend: Arc<dyn LlmBackend> = Arc::new(ScriptedBackend::new(vec![
         "```tool_call\n{\"name\": \"add\", \"arguments\": {\"a\": 1, \"b\": 1}}\n```",
     ]));

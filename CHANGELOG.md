@@ -6,7 +6,45 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.5.0] — 2026-06-15
+### Added
+- **Supported OpenAI-compatible HTTP backend.** `backends::OpenAiHttpBackend`
+  (behind the new `http-backend` feature) is a streaming client that works
+  against OpenAI, llama.cpp `llama-server`, vLLM, LM Studio, and Ollama by
+  changing only the base URL. Tokens stream through `on_token`; the
+  `GenerationResult` carries the real token counts from the response `usage`
+  block; the abort flag is honored between chunks. Configured via `OpenAiConfig`
+  (`base_url`, `model`, optional `api_key`, endpoint, request timeout).
+  `OpenAiEndpoint` selects `/v1/chat/completions` (default - the formatted prompt
+  is sent as a user message) or `/v1/completions` (the already-templated prompt
+  is sent verbatim, avoiding double-templating against a local completion
+  endpoint). Promotes what was previously the `openai-example` example to a
+  depended-on module. New `CoreError::BackendUnreachable` distinguishes a
+  transport failure (no response - safe to retry or fail over) from
+  `CoreError::Backend` (the endpoint answered with an error).
+- **Pre-execute approval hook.** `Agent::set_approval_hook` installs an
+  `ApprovalHook` that is consulted once per parsed tool call - after parsing,
+  before execution - so a host can authorize, sandbox, or interactively confirm
+  tool use (e.g. a per-call "allow this?" prompt). The hook is `async` and may
+  block for as long as it needs, including awaiting a human decision. Returning
+  `ApprovalDecision::Deny { reason }` skips the call, feeds `reason` back to the
+  model as an error tool result so it can adapt, and emits the new
+  `AgentEvent::ToolDenied` event (distinct from an execution failure). With no
+  hook installed the tool loop behaves exactly as before. Gated on the `tools`
+  feature.
+
+### Changed
+- The `openai-example` cargo feature is replaced by `http-backend`, which now
+  gates the supported `backends::OpenAiHttpBackend` module (the `openai_backend`
+  example is a thin demo of it).
+
+### Documented
+- **`AgentEvent::GenerationStats` emission guarantee.** Documented and pinned
+  with tests: exactly one `GenerationStats` is emitted per completed LLM
+  iteration within a `prompt()` call, always before the closing `AgentEnd`, so
+  summing them yields exact per-run token totals with no gaps or double counting.
+  Behaviour unchanged; the contract is now explicit for consumers metering usage.
+
+## [0.5.0] - 2026-06-15
 
 First release as a standalone, independently published crate.
 
@@ -16,7 +54,7 @@ First release as a standalone, independently published crate.
   `detect_template()` (GGUF metadata) and `template_from_name()` (manual
   override, with aliases) now resolve them. Supported set documented in the
   README.
-- `Agent::prompt_stream(text, backend)` — convenience that creates the event
+- `Agent::prompt_stream(text, backend)` - convenience that creates the event
   channel and returns `(receiver, future)`, so callers don't have to wire up the
   `mpsc` themselves.
 - **`tools` cargo feature** (enabled by default) gating the `Tool` trait,
@@ -24,7 +62,7 @@ First release as a standalone, independently published crate.
   Build with `--no-default-features` to drop the `async-trait` dependency for
   minimal chat-only consumers; tool-call *parsing* and `ToolSchema` stay
   available regardless.
-- `examples/openai_backend.rs` — a streaming OpenAI-compatible HTTP backend
+- `examples/openai_backend.rs` - a streaming OpenAI-compatible HTTP backend
   (behind the `openai-example` feature) demonstrating a real over-the-wire
   `LlmBackend`.
 - Full `#![deny(missing_docs)]` coverage and compile-checked doctests mirroring
@@ -32,9 +70,9 @@ First release as a standalone, independently published crate.
   benchmarks for the context pipeline.
 - **Tool execution loop.** `Agent::prompt` now parses tool calls from the
   model's reply, runs the matching registered `Tool`, appends a tool-result
-  message, and loops back to the LLM until it returns a tool-free answer —
+  message, and loops back to the LLM until it returns a tool-free answer -
   emitting `ToolExecStart` / `ToolExecUpdate` / `ToolExecEnd` along the way.
-- `parse_tool_calls()` + `ParsedToolCall` — lenient parser for the advertised
+- `parse_tool_calls()` + `ParsedToolCall` - lenient parser for the advertised
   ```` ```tool_call ```` JSON convention (fenced `tool_call`/`json` blocks, or a
   whole-message bare JSON object with `name` + `arguments`).
 - `AgentConfig::max_tool_iterations` (default 8) bounds the tool loop; the agent
@@ -48,7 +86,7 @@ First release as a standalone, independently published crate.
   summary message via one extra backend call, instead of discarding them.
   Best-effort, falling back to the sliding window on failure.
   `Agent::set_prune_strategy()` selects the strategy.
-- `plan_prune()` + `PrunePlan` — exposes the turn-level keep/drop decision
+- `plan_prune()` + `PrunePlan` - exposes the turn-level keep/drop decision
   (`prepare_context` is now a thin formatter over it); used by the summarizer to
   find which turns to fold.
 - `Agent::replace_messages()` advances the id counter past restored `msg-N` ids
@@ -56,21 +94,21 @@ First release as a standalone, independently published crate.
 
 ### Changed
 - `CoreError` and `AgentEvent` are now `#[non_exhaustive]` for forward
-  compatibility — downstream `match`es must include a wildcard arm. Documented
+  compatibility - downstream `match`es must include a wildcard arm. Documented
   the SemVer + MSRV (Rust 1.85, default features) stability policy in
   `CONTRIBUTING.md` and the README.
 
-## [0.2.0] — 2026-06
+## [0.2.0] - 2026-06
 
 ### Added
 - `ChatTemplate` trait with built-in `ChatMLTemplate`, `Llama3Template`,
   `MistralTemplate`, `AlpacaTemplate`, and `VicunaTemplate` implementations.
-- `detect_template()` — resolves a chat template from a GGUF metadata template
+- `detect_template()` - resolves a chat template from a GGUF metadata template
   string (Llama 3 → ChatML → Mistral `[INST]` → Alpaca → Vicuna), falling back
   to ChatML.
-- `template_from_name()` — resolves manual-override names (with aliases) to a
+- `template_from_name()` - resolves manual-override names (with aliases) to a
   template, returning `None` for unimplemented families.
-- `prepare_context()` — single pass that prunes message pairs to fit the token
+- `prepare_context()` - single pass that prunes message pairs to fit the token
   budget, applies the chat template, and reports tokens used / messages kept /
   messages pruned. Pruning is turn-aware and never orphans a user/assistant
   pair. System-prompt and tool-schema tokens are deducted before pruning.

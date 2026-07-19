@@ -1,6 +1,6 @@
 ---
 title: Orion
-description: Agent harness for local LLM inference. Backend-agnostic — bring your own model runtime.
+description: Agent harness for local LLM inference. Backend-agnostic - bring your own model runtime.
 tableOfContents: false
 ---
 
@@ -10,12 +10,12 @@ export const base = import.meta.env.BASE_URL;
 
 ![Orion sits between any backend (llama.cpp, MLX, cloud API) and your app, turning a prompt into a streamed, tool-augmented answer.](../../assets/diagrams/orion-core-hero.png)
 
-**Agent harness for local LLM inference.** Backend-agnostic — bring your own
+**Agent harness for local LLM inference.** Backend-agnostic - bring your own
 model runtime (llama.cpp, MLX, cloud APIs, anything).
 
 Orion handles the conversation loop so you don't have to: context
 management, token budgets, streaming events, chat formatting, and an automatic
-tool-execution loop. You implement one trait — `LlmBackend` — for your
+tool-execution loop. You implement one trait - `LlmBackend` - for your
 inference engine, and Orion handles everything above it.
 
 ## How it works
@@ -59,11 +59,11 @@ User sends "Hello"
 <CardGrid>
   <Card title="One trait to implement" icon="seti:rust">
     Plug in any engine by implementing `LlmBackend`. It runs on a blocking
-    thread — no async required. Orion owns the async orchestration.
+    thread - no async required. Orion owns the async orchestration.
   </Card>
   <Card title="Streaming events" icon="random">
     Subscribe to an `AgentEvent` stream for tokens, tool execution, and
-    context-budget updates — everything a reactive UI needs.
+    context-budget updates - everything a reactive UI needs.
   </Card>
   <Card title="Automatic tool loop" icon="puzzle">
     The agent parses tool calls, runs your tools, feeds results back, and

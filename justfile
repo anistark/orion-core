@@ -47,6 +47,10 @@ docs-build:
 docs:
     cd docs && pnpm run dev
 
+# Serve the docs exposed on the local network (LAN, Tailscale, etc.)
+docs-host:
+    cd docs && pnpm exec astro dev --host
+
 # Preview the production build locally
 docs-preview:
     cd docs && pnpm run preview

@@ -29,4 +29,4 @@ anonymous.
 Orion is a library that orchestrates conversation state and prompt
 formatting; it does not run a model or perform network I/O itself. Note that
 **tool execution and `LlmBackend` implementations are provided by the host
-application** — vulnerabilities in those belong to the host, not this crate.
+application** - vulnerabilities in those belong to the host, not this crate.

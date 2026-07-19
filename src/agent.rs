@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+#[cfg(feature = "tools")]
+use async_trait::async_trait;
 use log;
 use tokio::sync::mpsc;
 
@@ -50,6 +52,67 @@ impl Default for AgentConfig {
     }
 }
 
+/// Decision returned by an [`ApprovalHook`] for a single tool call.
+#[cfg(feature = "tools")]
+#[derive(Debug, Clone)]
+pub enum ApprovalDecision {
+    /// Run the tool call as normal.
+    Approve,
+    /// Skip execution. The `reason` is fed back to the model as an error tool
+    /// result so it can adapt, and reported via [`AgentEvent::ToolDenied`].
+    Deny {
+        /// Human-readable explanation of why the call was refused.
+        reason: String,
+    },
+}
+
+/// Authorizes tool calls before they run.
+///
+/// When a hook is installed via [`Agent::set_approval_hook`], the agent consults
+/// it once for every parsed tool call - on each tool-loop iteration, for each
+/// call in a multi-call turn - after parsing and immediately before execution.
+/// This is the point at which a host can sandbox, gate, or interactively confirm
+/// tool use (e.g. "the model wants to run `delete_file` - allow?").
+///
+/// The hook receives the parsed call (name + arguments) exactly as the tool
+/// would. It is `async` and may block for as long as it needs - including
+/// awaiting a human decision - so it is never wrapped in an internal timeout.
+///
+/// A [`Deny`](ApprovalDecision::Deny) does not abort the run: the refusal is
+/// appended as an error tool result and the loop continues so the model can
+/// react. To stop the whole run, use [`Agent::abort`].
+///
+/// ```
+/// use std::sync::Arc;
+/// use async_trait::async_trait;
+/// use orion_core::{ApprovalDecision, ApprovalHook, ToolCall};
+///
+/// /// Confirms destructive tools, approves everything else.
+/// struct ConfirmDestructive;
+///
+/// #[async_trait]
+/// impl ApprovalHook for ConfirmDestructive {
+///     async fn review(&self, call: &ToolCall) -> ApprovalDecision {
+///         if call.name.starts_with("delete_") {
+///             ApprovalDecision::Deny {
+///                 reason: format!("{} needs confirmation before it can run", call.name),
+///             }
+///         } else {
+///             ApprovalDecision::Approve
+///         }
+///     }
+/// }
+///
+/// // agent.set_approval_hook(Arc::new(ConfirmDestructive));
+/// # let _hook: Arc<dyn ApprovalHook> = Arc::new(ConfirmDestructive);
+/// ```
+#[cfg(feature = "tools")]
+#[async_trait]
+pub trait ApprovalHook: Send + Sync {
+    /// Review a parsed tool call and decide whether it may execute.
+    async fn review(&self, call: &ToolCall) -> ApprovalDecision;
+}
+
 /// The agent: manages conversation state, context pipeline, and the
 /// prompt → LLM → tool → LLM loop.
 ///
@@ -82,6 +145,8 @@ pub struct Agent {
     messages: Vec<Message>,
     #[cfg(feature = "tools")]
     tools: Vec<Box<dyn Tool>>,
+    #[cfg(feature = "tools")]
+    approval_hook: Option<Arc<dyn ApprovalHook>>,
     template: Arc<dyn ChatTemplate>,
     abort: Arc<AtomicBool>,
     msg_counter: u64,
@@ -107,6 +172,8 @@ impl Agent {
             messages: Vec::new(),
             #[cfg(feature = "tools")]
             tools: Vec::new(),
+            #[cfg(feature = "tools")]
+            approval_hook: None,
             template,
             abort: Arc::new(AtomicBool::new(false)),
             msg_counter: 0,
@@ -192,6 +259,18 @@ impl Agent {
     pub fn set_tools(&mut self, tools: Vec<Box<dyn Tool>>) {
         log::debug!("Agent tools set: count={}", tools.len());
         self.tools = tools;
+    }
+
+    /// Install a hook consulted before every tool call executes.
+    ///
+    /// See [`ApprovalHook`] for the exact semantics. With no hook installed the
+    /// tool loop behaves exactly as it did before - every call runs immediately.
+    ///
+    /// Available only with the `tools` feature (enabled by default).
+    #[cfg(feature = "tools")]
+    pub fn set_approval_hook(&mut self, hook: Arc<dyn ApprovalHook>) {
+        log::debug!("Agent approval hook installed");
+        self.approval_hook = Some(hook);
     }
 
     /// Clear the conversation history.
@@ -397,7 +476,7 @@ impl Agent {
                 return Ok(());
             }
 
-            // Tool calls are present — reachable only with the `tools` feature,
+            // Tool calls are present - reachable only with the `tools` feature,
             // since without it `has_tools` is always false (so `tool_calls` is
             // always empty and we returned above).
             #[cfg(feature = "tools")]
@@ -448,18 +527,54 @@ impl Agent {
     ) -> bool {
         let mut tool_results: Vec<ToolResult> = Vec::new();
         for call in tool_calls {
-            tx.send(AgentEvent::ToolExecStart {
-                tool_call_id: call.id.clone(),
-                tool_name: call.name.clone(),
-                args: call.arguments.clone(),
-            })
-            .ok();
+            // Consult the approval hook (if installed) before touching the tool.
+            // A denial is turned into an error result the model can see and
+            // react to; it never aborts the loop.
+            let decision = match &self.approval_hook {
+                Some(hook) => hook.review(call).await,
+                None => ApprovalDecision::Approve,
+            };
 
-            let (content, is_error) = match self.execute_tool(call, tx).await {
-                Ok(out) => (out.content, false),
-                Err(e) => {
-                    log::warn!("Agent::prompt: tool '{}' failed: {e}", call.name);
-                    (e.to_string(), true)
+            let (content, is_error) = match decision {
+                ApprovalDecision::Deny { reason } => {
+                    log::info!("Agent::prompt: tool '{}' denied: {reason}", call.name);
+                    tx.send(AgentEvent::ToolDenied {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        reason: reason.clone(),
+                    })
+                    .ok();
+                    (reason, true)
+                }
+                ApprovalDecision::Approve => {
+                    tx.send(AgentEvent::ToolExecStart {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        args: call.arguments.clone(),
+                    })
+                    .ok();
+
+                    let (content, is_error) = match self.execute_tool(call, tx).await {
+                        Ok(out) => (out.content, false),
+                        Err(e) => {
+                            log::warn!("Agent::prompt: tool '{}' failed: {e}", call.name);
+                            (e.to_string(), true)
+                        }
+                    };
+
+                    tx.send(AgentEvent::ToolExecEnd {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        result: ToolResult {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            content: content.clone(),
+                            is_error,
+                        },
+                    })
+                    .ok();
+
+                    (content, is_error)
                 }
             };
 
@@ -469,13 +584,6 @@ impl Agent {
                 content: content.clone(),
                 is_error,
             };
-            tx.send(AgentEvent::ToolExecEnd {
-                tool_call_id: call.id.clone(),
-                tool_name: call.name.clone(),
-                result: result.clone(),
-            })
-            .ok();
-
             let result_msg =
                 Message::tool_result(self.next_id(), &call.id, &call.name, content, is_error);
             self.messages.push(result_msg.clone());
@@ -505,7 +613,7 @@ impl Agent {
     /// channel for you.
     ///
     /// Returns the event receiver plus a future that drives generation. Poll the
-    /// future (e.g. with `tokio::join!`) while draining the receiver — the two
+    /// future (e.g. with `tokio::join!`) while draining the receiver - the two
     /// run concurrently so tokens stream as they're produced:
     ///
     /// ```
@@ -678,7 +786,7 @@ impl Agent {
     /// pinned summary message so their gist survives instead of being dropped.
     ///
     /// Best-effort: any failure (backend not ready, summarizer error, abort)
-    /// logs and returns, leaving the conversation untouched — the normal
+    /// logs and returns, leaving the conversation untouched - the normal
     /// sliding-window pruning in `prepare_context` then applies.
     async fn compress_if_needed(
         &mut self,
@@ -714,11 +822,11 @@ impl Agent {
             )
             .ok()?;
             if plan.dropped.is_empty() {
-                return None; // everything fits — nothing to summarize
+                return None; // everything fits - nothing to summarize
             }
 
             // Indices to fold away: the dropped turns plus any prior summary
-            // (pinned, so it never lands in `dropped`) — consolidated into one.
+            // (pinned, so it never lands in `dropped`) - consolidated into one.
             let mut remove: Vec<usize> = plan.dropped.iter().flat_map(|r| r.clone()).collect();
             let prior_summary = messages
                 .iter()

@@ -143,7 +143,7 @@ pub fn plan_prune(
     let last = turns.len() - 1;
     let mut keep = vec![false; turns.len()];
 
-    // The latest turn must fit — otherwise context overflow.
+    // The latest turn must fit - otherwise context overflow.
     if turn_costs[last] > budget {
         return Err(CoreError::Context(format!(
             "Latest message ({} tokens) plus system prompt \

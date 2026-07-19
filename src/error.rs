@@ -17,9 +17,18 @@ use serde::Serialize;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum CoreError {
-    /// The LLM backend failed (no model loaded, inference error, etc.).
+    /// The LLM backend failed (no model loaded, inference error, or a reachable
+    /// endpoint that returned an error status).
     #[error("Backend error: {0}")]
     Backend(String),
+
+    /// The backend endpoint could not be reached - connection refused, DNS
+    /// failure, timeout, or a dropped connection mid-response. No response was
+    /// received, so the request may be safe to retry or fail over. Distinct from
+    /// [`Backend`](CoreError::Backend), which means the endpoint answered with an
+    /// error.
+    #[error("Backend unreachable: {0}")]
+    BackendUnreachable(String),
 
     /// Context preparation failed (e.g. the prompt cannot fit the budget).
     #[error("Context error: {0}")]

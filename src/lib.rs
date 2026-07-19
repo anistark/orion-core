@@ -89,6 +89,9 @@
 pub mod agent;
 /// The [`LlmBackend`] trait and inference parameter/result types.
 pub mod backend;
+/// Ready-made backends (feature `http-backend`): the OpenAI-compatible HTTP client.
+#[cfg(feature = "http-backend")]
+pub mod backends;
 /// Context-window management: pruning, token budgeting, and prompt formatting.
 pub mod context;
 /// Error and result types for the crate.
@@ -103,7 +106,11 @@ pub mod template;
 pub mod tools;
 
 pub use agent::{Agent, AgentConfig};
+#[cfg(feature = "tools")]
+pub use agent::{ApprovalDecision, ApprovalHook};
 pub use backend::{GenerationResult, InferenceParams, LlmBackend, TokenCallback};
+#[cfg(feature = "http-backend")]
+pub use backends::{OpenAiConfig, OpenAiEndpoint, OpenAiHttpBackend};
 pub use context::{plan_prune, ContextConfig, PreparedContext, PrunePlan, PruneStrategy};
 pub use error::{CoreError, CoreResult};
 pub use events::AgentEvent;
