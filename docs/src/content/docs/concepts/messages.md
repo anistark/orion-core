@@ -1,6 +1,6 @@
 ---
 title: Messages
-description: The conversation data types — roles, constructors, and tool records.
+description: The conversation data types - roles, constructors, and tool records.
 ---
 
 A conversation is a `Vec<Message>`. Messages support five roles that cover the
@@ -51,7 +51,7 @@ let pinned = Message::user("msg-5", "Remember: the project is called Orion.").pi
 agent.set_pinned("msg-5", true);
 ```
 
-Pruning is turn-aware, so a pinned message keeps its whole turn — no orphaned
+Pruning is turn-aware, so a pinned message keeps its whole turn - no orphaned
 call/result pairs. See [Context & budgets](../context/) for how pruning works.
 
 ## Persisting conversations

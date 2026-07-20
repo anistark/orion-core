@@ -27,7 +27,7 @@ pub struct ParsedToolCall {
 ///
 /// 1. Every ```` ```tool_call ```` and ```` ```json ```` fenced block is parsed.
 /// 2. If no fenced block yields a call, the *whole trimmed message* is tried as
-///    a single JSON object — but only when it carries both `name` and
+///    a single JSON object - but only when it carries both `name` and
 ///    `arguments` keys.
 ///
 /// Arbitrary mid-prose substrings are never scanned, so ordinary replies that

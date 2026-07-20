@@ -17,12 +17,12 @@ cargo run --example mock_backend   # see the agent loop end to end
 ```
 
 If you have [`just`](https://github.com/casey/just), the common tasks are
-wrapped as recipes — run `just` to list them (`just check`, `just lint`,
+wrapped as recipes - run `just` to list them (`just check`, `just lint`,
 `just test`, `just format`).
 
 ## Before you open a PR
 
-Please make sure these pass — CI runs the same checks:
+Please make sure these pass - CI runs the same checks:
 
 ```sh
 cargo fmt --all --check                       # formatting
@@ -33,7 +33,7 @@ cargo test --doc                              # doctests
 
 ## Code style
 
-- Keep the crate **backend-agnostic** — no dependency on any specific inference
+- Keep the crate **backend-agnostic** - no dependency on any specific inference
   engine, runtime, or application. If a change only makes sense for one host,
   it probably belongs in the host, not here.
 - Match the surrounding code: clear names, minimal comments. Document **public**
@@ -48,7 +48,7 @@ cargo test --doc                              # doctests
 - `CoreError` and `AgentEvent` are `#[non_exhaustive]`: always match them with a
   wildcard arm so added variants don't break downstream builds.
 - **MSRV is Rust 1.85**, and raising it is a minor-version (never a patch)
-  change. The MSRV guarantee covers the **default feature set** only — optional
+  change. The MSRV guarantee covers the **default feature set** only - optional
   example features such as `openai-example` pull a heavier dependency tree, may
   require a newer toolchain, and are exercised on stable rather than on MSRV.
 
@@ -62,7 +62,7 @@ cargo test --doc                              # doctests
 ## Reporting bugs & proposing features
 
 Open an issue with a minimal reproduction (a small `LlmBackend` mock is usually
-enough — see `examples/mock_backend.rs`) or a clear description of the proposed
+enough - see `examples/mock_backend.rs`) or a clear description of the proposed
 API and its motivation.
 
 By contributing, you agree that your contributions are licensed under the

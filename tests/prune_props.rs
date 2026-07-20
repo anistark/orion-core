@@ -85,7 +85,7 @@ proptest! {
         prop_assert_eq!(covered, (0..messages.len()).collect::<Vec<_>>());
 
         // 2. Turn integrity: each range starts with a User message and contains
-        //    no other User — i.e. it is a whole turn, never a split pair.
+        //    no other User - i.e. it is a whole turn, never a split pair.
         for range in plan.kept.iter().chain(plan.dropped.iter()) {
             prop_assert_eq!(&messages[range.start].role, &Role::User);
             for msg in &messages[range.start + 1..range.end] {

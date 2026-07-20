@@ -53,9 +53,19 @@ pub enum AgentEvent {
         message: Message,
     },
 
-    /// Final timing statistics for a completed generation. Emitted once per
-    /// successful response so the UI / observability layer can record the real
-    /// time-to-first-token and generation time (not approximated from tps).
+    /// Timing and token statistics for one completed LLM generation.
+    ///
+    /// **Emission guarantee.** Exactly one `GenerationStats` is emitted for each
+    /// LLM iteration that runs to completion within a single `prompt()` call -
+    /// no more, no less - and always before that turn's `MessageEnd`/`TurnEnd`
+    /// and before the run's closing `AgentEnd`. When tools fire, a `prompt()`
+    /// spans several iterations; summing the `tokens_generated` / `prompt_tokens`
+    /// of every `GenerationStats` in the run therefore yields the exact per-run
+    /// totals, with no gaps and no double counting. A generation that is aborted
+    /// or errors before completing produces no result and so emits no
+    /// `GenerationStats` (the internal summarization pass likewise does not emit
+    /// one). Consumers metering usage can rely on this contract; it is pinned by
+    /// tests.
     GenerationStats {
         /// Tokens generated in the response.
         tokens_generated: u32,
@@ -97,6 +107,21 @@ pub enum AgentEvent {
         tool_name: String,
         /// The tool's result.
         result: ToolResult,
+    },
+
+    /// A tool call was refused by the approval hook and never executed.
+    ///
+    /// Distinct from a `ToolExecEnd` carrying an error result: that signals a
+    /// tool that ran and failed, whereas this signals a call that was blocked
+    /// before execution. The same `reason` is also appended to the conversation
+    /// as an error tool result so the model can adapt.
+    ToolDenied {
+        /// Id of the denied tool call.
+        tool_call_id: String,
+        /// Name of the denied tool.
+        tool_name: String,
+        /// Human-readable reason the call was refused.
+        reason: String,
     },
 
     /// Context budget info after formatting.

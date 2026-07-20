@@ -8,11 +8,19 @@ import starlightThemeRapide from 'starlight-theme-rapide';
 export default defineConfig({
   site: 'https://anistark.github.io',
   base: '/orion-core/',
+  // Dev-server only: accept requests for any hostname so `just docs-host` is
+  // reachable by LAN/Tailscale name, not just by IP. Has no effect on the
+  // static build.
+  vite: {
+    server: {
+      allowedHosts: true,
+    },
+  },
   integrations: [
     starlight({
       title: 'Orion',
       description:
-        'Agent harness for local LLM inference. Backend-agnostic — bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).',
+        'Agent harness for local LLM inference. Backend-agnostic - bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).',
       plugins: [starlightThemeRapide()],
       logo: {
         // Split light/dark: white-on-dark mark for dark theme, outline mark for light.

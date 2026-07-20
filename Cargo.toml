@@ -20,9 +20,10 @@ default = ["tools"]
 # consumers that only need plain chat. Tool-call *parsing* (`parse_tool_calls`,
 # `ParsedToolCall`, `ToolSchema`) stays available either way.
 tools = ["dep:async-trait"]
-# Enables the `openai_backend` example: a streaming OpenAI-compatible HTTP
-# backend. Pulls in a blocking HTTP client; off by default.
-openai-example = ["dep:reqwest"]
+# A supported, streaming OpenAI-compatible HTTP backend
+# (`backends::OpenAiHttpBackend`). Pulls in a blocking HTTP client; off by
+# default so the core crate stays dependency-light.
+http-backend = ["dep:reqwest"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -48,12 +49,11 @@ proptest = "1"
 # Benchmarks for the context pipeline.
 criterion = "0.5"
 
-# An OpenAI-compatible HTTP backend (streaming `/v1/completions`). Demonstrates
-# backend-agnosticism beyond the in-process mock. Build/run with:
-#   cargo run --example openai_backend --features openai-example
+# Thin demo driving the supported `backends::OpenAiHttpBackend`. Build/run with:
+#   cargo run --example openai_backend --features http-backend
 [[example]]
 name = "openai_backend"
-required-features = ["openai-example"]
+required-features = ["http-backend"]
 
 [[bench]]
 name = "context_bench"

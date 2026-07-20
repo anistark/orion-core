@@ -59,11 +59,11 @@ agent.set_tools(vec![Box::new(ReadFileTool)]);
 ```
 
 Tool schemas are injected into the system prompt automatically when the context
-is formatted, so you only register tools — the agent handles the rest.
+is formatted, so you only register tools - the agent handles the rest.
 
 ## The tool-call convention
 
-Templates advertise — and `parse_tool_calls` reads — a fenced JSON block:
+Templates advertise - and `parse_tool_calls` reads - a fenced JSON block:
 
 ````text
 ```tool_call
@@ -73,9 +73,47 @@ Templates advertise — and `parse_tool_calls` reads — a fenced JSON block:
 
 A JSON **array** invokes several tools in one turn. Parsing is lenient: a
 ` ```json ` fence, or a whole-message bare JSON object carrying both `name` and
-`arguments`, also counts — so smaller models still trigger tools when they drift
+`arguments`, also counts - so smaller models still trigger tools when they drift
 from the exact format. With no tools registered, parsing is skipped entirely and
 replies pass through verbatim.
+
+## Gating tool calls
+
+By default the agent runs each tool the moment the model calls it. Install an
+`ApprovalHook` to authorize calls first - for sandboxing, permission tiers, or a
+human "the model wants to run `delete_file` - allow?" confirmation. The hook is
+consulted once per parsed call, after parsing and **before** execution:
+
+```rust
+use std::sync::Arc;
+use orion_core::{ApprovalDecision, ApprovalHook, ToolCall};
+use async_trait::async_trait;
+
+struct ConfirmDestructive;
+
+#[async_trait]
+impl ApprovalHook for ConfirmDestructive {
+    async fn review(&self, call: &ToolCall) -> ApprovalDecision {
+        if call.name.starts_with("delete_") {
+            ApprovalDecision::Deny {
+                reason: format!("{} needs confirmation before it can run", call.name),
+            }
+        } else {
+            ApprovalDecision::Approve
+        }
+    }
+}
+
+agent.set_approval_hook(Arc::new(ConfirmDestructive));
+```
+
+The hook is `async` and may block for as long as it needs - including awaiting a
+human decision - so it's never wrapped in an internal timeout. A `Deny` does
+**not** abort the run: the tool is skipped, the `reason` is appended as an error
+tool result (so the model sees the refusal and can adapt), and a
+[`ToolDenied` event](../events/) fires - distinct from an execution failure. The
+loop then continues. With no hook installed, the tool loop behaves exactly as
+before.
 
 ## Opting out of the `tools` feature
 
@@ -88,7 +126,7 @@ orion-core = { version = "0.2", default-features = false }
 ```
 
 Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`) and `ToolSchema` stay
-available either way — only the `Tool` trait, `ToolOutput`,
+available either way - only the `Tool` trait, `ToolOutput`,
 `ToolUpdateCallback`, and `Agent::set_tools` require the feature.
 
 :::note

@@ -44,7 +44,7 @@ let mut agent = Agent::new(AgentConfig {
 //    while generation runs, then returns when the turn is done.
 let (tx, mut rx) = mpsc::unbounded_channel::<AgentEvent>();
 
-// Consume events concurrently — forward them to your UI.
+// Consume events concurrently - forward them to your UI.
 let consumer = tokio::spawn(async move {
     while let Some(event) = rx.recv().await {
         match event {
@@ -90,11 +90,11 @@ result?;
 The repository ships two runnable examples:
 
 ```sh
-# Mock backend — streams a canned reply, no model needed.
+# Mock backend - streams a canned reply, no model needed.
 cargo run --example mock_backend
 
 # Real OpenAI-compatible backend (OpenAI, llama.cpp server, vLLM, LM Studio, Ollama).
-cargo run --example openai_backend --features openai-example
+cargo run --example openai_backend --features http-backend
 ```
 
 See [Examples](../../reference/examples/) for what each one demonstrates.
@@ -110,11 +110,20 @@ orion-core = { version = "0.2", default-features = false }
 ```
 
 Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`, `ToolSchema`) stays
-available either way — only the `Tool` trait and the execution loop require the
+available either way - only the `Tool` trait and the execution loop require the
 feature. See [Tools](../../concepts/tools/) for details.
+
+The `http-backend` feature is **off by default**. Enable it for the supported
+[`OpenAiHttpBackend`](../../concepts/backend/#ready-made-the-openai-compatible-http-backend),
+a streaming client for any OpenAI-compatible server; it pulls in a blocking HTTP
+client, so it stays opt-in:
+
+```toml
+orion-core = { version = "0.5", features = ["http-backend"] }
+```
 
 ## Next steps
 
-- [Architecture](../../concepts/architecture/) — how the pieces fit together.
-- [Backend](../../concepts/backend/) — the one trait you implement.
-- [Tools](../../concepts/tools/) — give the model abilities.
+- [Architecture](../../concepts/architecture/) - how the pieces fit together.
+- [Backend](../../concepts/backend/) - the one trait you implement.
+- [Tools](../../concepts/tools/) - give the model abilities.

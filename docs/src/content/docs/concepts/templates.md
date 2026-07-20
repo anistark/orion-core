@@ -14,14 +14,14 @@ DeepSeek (LLM chat), Command-R / Command-R+, Alpaca, and Vicuna.
 
 ## Selecting a template
 
-- **`detect_template(gguf_template)`** — inspects a GGUF metadata template
+- **`detect_template(gguf_template)`** - inspects a GGUF metadata template
   string and returns the matching implementation, falling back to ChatML when
   nothing matches.
-- **`template_from_name(name)`** — resolves a manual-override name (with common
+- **`template_from_name(name)`** - resolves a manual-override name (with common
   aliases such as `llama-2`, `phi-3`, `cohere`) to a template, or `None` for an
   unimplemented family so the caller can fall back to auto-detection.
 - **`Agent::with_template(config, template)`** / **`agent.set_template(template)`**
-  — set or swap the template at runtime.
+  - set or swap the template at runtime.
 
 ```rust
 use orion_core::{Agent, AgentConfig, Llama3Template, template_from_name};

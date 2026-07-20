@@ -42,10 +42,10 @@ is a valid starting point.
 
 There are two ways to drive a turn:
 
-- **`agent.prompt(text, backend, tx)`** — you create the
+- **`agent.prompt(text, backend, tx)`** - you create the
   `mpsc::unbounded_channel::<AgentEvent>()` and pass the sender. The agent
   streams events into it and returns when the turn is done.
-- **`agent.prompt_stream(text, backend)`** — the agent creates the channel for
+- **`agent.prompt_stream(text, backend)`** - the agent creates the channel for
   you and returns `(receiver, future)`. Drive the future while you drain the
   receiver.
 
@@ -67,7 +67,7 @@ agent.replace_messages(saved_messages); // Restore a saved conversation
 ```
 
 Because conversation state is just a `Vec<Message>`, you can persist it and
-restore it later with `replace_messages` — useful for resuming sessions.
+restore it later with `replace_messages` - useful for resuming sessions.
 
 ## Aborting a generation
 
@@ -83,6 +83,8 @@ running generation stops promptly and the call returns with
 
 The agent also owns the registered tools and the active chat template:
 
-- `agent.set_tools(vec![Box::new(MyTool)])` — see [Tools](../tools/).
-- `Agent::with_template(config, template)` / `agent.set_template(template)` —
+- `agent.set_tools(vec![Box::new(MyTool)])` - see [Tools](../tools/).
+- `agent.set_approval_hook(Arc::new(MyHook))` - authorize tool calls before they
+  run; see [Gating tool calls](../tools/#gating-tool-calls).
+- `Agent::with_template(config, template)` / `agent.set_template(template)` -
   see [Templates](../templates/).

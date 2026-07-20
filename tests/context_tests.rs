@@ -505,7 +505,7 @@ fn pinned_old_turn_survives_tight_budget() {
     ];
 
     // Budget for system + the pinned first turn + the latest turn, but NOT the
-    // middle filler turn — so without pinning the first turn would be dropped.
+    // middle filler turn - so without pinning the first turn would be dropped.
     let system_block = template.format_system("sys", &[]);
     let overhead = char_counter(&system_block) + char_counter(template.assistant_prefix());
     let pinned_cost: u32 = messages[0..2]

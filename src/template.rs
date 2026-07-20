@@ -178,7 +178,7 @@ impl ChatTemplate for Llama3Template {
 /// {user} [/INST] {assistant}</s>[INST] {user_2} [/INST]
 /// ```
 ///
-/// Mistral has no dedicated system role — the system prompt is merged into
+/// Mistral has no dedicated system role - the system prompt is merged into
 /// the first user instruction. Because that merge needs cross-message state,
 /// `format()` is implemented directly; `format_system` / `format_message`
 /// return token-representative fragments for context-budget accounting.
@@ -234,7 +234,7 @@ impl ChatTemplate for MistralTemplate {
     // `format()` above. Because Mistral fuses the system prompt into the first
     // user `[INST]` (a whole-conversation operation these per-fragment hooks
     // can't see), concatenating the fragments emits one extra `[INST]` when a
-    // system prompt is present — so the budget over-counts by ~2-3 tokens.
+    // system prompt is present - so the budget over-counts by ~2-3 tokens.
     // That's deliberately conservative (reserves a hair more headroom, never
     // under-counts). ChatML/Llama3/Alpaca/Vicuna have no such merge, so their
     // fragments are exact.
@@ -660,8 +660,8 @@ impl ChatTemplate for CommandRTemplate {
 /// {user} [/INST] {assistant} </s><s>[INST] {user_2} [/INST]
 /// ```
 ///
-/// Like Mistral, Llama 2 has no system role — the system prompt lives in a
-/// `<<SYS>>` block inside the first instruction — so `format()` is implemented
+/// Like Mistral, Llama 2 has no system role - the system prompt lives in a
+/// `<<SYS>>` block inside the first instruction - so `format()` is implemented
 /// directly while the per-message hooks are token-representative.
 pub struct Llama2Template;
 

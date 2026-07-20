@@ -5,7 +5,7 @@ description: Fit a conversation into a fixed context window with pruning and bud
 
 The context module handles the hard problem of fitting a conversation into a
 fixed-size context window. The agent runs it automatically before each LLM
-call, so you rarely call it directly — but understanding it explains the
+call, so you rarely call it directly - but understanding it explains the
 `ContextBudget` events and the pruning behavior.
 
 ![The context window has a smart zone early on where the model attends closely and a dumb zone later as it fills; strategies like compacting, forking, or handing off to a new session keep the useful part in view.](../../../assets/diagrams/context-zones.png)
@@ -48,9 +48,9 @@ println!(
 
 Set via `ContextConfig::prune_strategy`:
 
-- **`SlidingWindow`** (default) — drop the oldest turns first to fit the budget.
+- **`SlidingWindow`** (default) - drop the oldest turns first to fit the budget.
   Keeps the system prompt and the most recent messages.
-- **`Summarize`** — before pruning, the agent folds the oldest overflowing
+- **`Summarize`** - before pruning, the agent folds the oldest overflowing
   turns into a single **pinned** summary message (one extra backend call), so
   their gist survives instead of being dropped. Prior summaries are
   consolidated, so exactly one accumulates. It's best-effort: if summarization
@@ -67,11 +67,11 @@ let pinned = Message::user("id", "Important context").pinned();
 agent.set_pinned(message_id, true);
 ```
 
-Pruning is turn-aware, so a pinned message keeps its whole turn — pinned
+Pruning is turn-aware, so a pinned message keeps its whole turn - pinned
 call/result pairs are never orphaned.
 
 ## The ContextBudget event
 
 After each context prep, the agent emits a `ContextBudget` event with the
-tokens used, the maximum, and how many messages were included versus pruned —
+tokens used, the maximum, and how many messages were included versus pruned -
 ideal for a live "context full" gauge in your UI. See [Events](../events/).
