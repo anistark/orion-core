@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orion_core::{
-    Agent, AgentConfig, AgentEvent, CoreResult, GenerationResult, InferenceParams, LlmBackend,
-    TokenCallback, Tool, ToolOutput, ToolUpdateCallback,
+    Agent, AgentConfig, AgentEvent, CoreError, CoreResult, GenerationResult, InferenceParams,
+    LlmBackend, TokenCallback, Tool, ToolOutput, ToolUpdateCallback,
 };
 use tokio::sync::mpsc;
 
@@ -48,6 +48,58 @@ impl LlmBackend for ScriptedBackend {
         Ok(GenerationResult {
             text: reply.clone(),
             tokens_generated: reply.split_whitespace().count() as u32,
+            prompt_tokens: 7,
+            tokens_per_sec: 10.0,
+            time_to_first_token_ms: 1.0,
+            generation_time_ms: 1.0,
+        })
+    }
+
+    fn tokenize_count(&self, text: &str) -> CoreResult<u32> {
+        Ok(text.split_whitespace().count() as u32)
+    }
+
+    fn is_ready(&self) -> bool {
+        true
+    }
+}
+
+/// A backend that completes its first `ok_calls` generations normally, then
+/// returns `Aborted` - simulating the abort flag tripping mid-generation. An
+/// aborted generation produces no `GenerationResult`, so it must emit no
+/// `GenerationStats`.
+struct AbortAfterBackend {
+    ok_calls: usize,
+    reply: String,
+    call: AtomicUsize,
+}
+
+impl AbortAfterBackend {
+    fn new(ok_calls: usize, reply: &str) -> Self {
+        Self {
+            ok_calls,
+            reply: reply.into(),
+            call: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl LlmBackend for AbortAfterBackend {
+    fn generate(
+        &self,
+        _prompt: &str,
+        _params: &InferenceParams,
+        _abort: Arc<AtomicBool>,
+        mut on_token: TokenCallback,
+    ) -> CoreResult<GenerationResult> {
+        let idx = self.call.fetch_add(1, Ordering::SeqCst);
+        if idx >= self.ok_calls {
+            return Err(CoreError::Aborted);
+        }
+        on_token(&self.reply, 1, 1.0);
+        Ok(GenerationResult {
+            text: self.reply.clone(),
+            tokens_generated: self.reply.split_whitespace().count() as u32,
             prompt_tokens: 7,
             tokens_per_sec: 10.0,
             time_to_first_token_ms: 1.0,
@@ -177,4 +229,32 @@ async fn one_stats_per_iteration_when_max_iterations_trips() {
 
     let events = run(&mut agent, backend, "loop").await;
     assert_stats_contract(&events, 3);
+}
+
+#[tokio::test]
+async fn no_stats_when_generation_aborts() {
+    let mut agent = Agent::new(AgentConfig::default());
+    // Aborts on the very first generation: no iteration completes.
+    let backend: Arc<dyn LlmBackend> = Arc::new(AbortAfterBackend::new(0, "unused"));
+
+    let events = run(&mut agent, backend, "hello").await;
+    // The aborted iteration emits no GenerationStats, yet the run still closes
+    // with a single trailing AgentEnd.
+    assert_stats_contract(&events, 0);
+}
+
+#[tokio::test]
+async fn only_completed_iterations_emit_stats_before_abort() {
+    let mut agent = Agent::new(AgentConfig::default());
+    agent.set_tools(vec![Box::new(NoopTool)]);
+
+    // First generation completes (a tool call → 1 stat); the second aborts
+    // mid-generation (0 stats). Summing yields exactly the completed iteration.
+    let backend: Arc<dyn LlmBackend> = Arc::new(AbortAfterBackend::new(
+        1,
+        "```tool_call\n{\"name\": \"noop\", \"arguments\": {}}\n```",
+    ));
+
+    let events = run(&mut agent, backend, "run then abort").await;
+    assert_stats_contract(&events, 1);
 }

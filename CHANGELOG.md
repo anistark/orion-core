@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-23
+
 ### Added
 - **Supported OpenAI-compatible HTTP backend.** `backends::OpenAiHttpBackend`
   (behind the new `http-backend` feature) is a streaming client that works

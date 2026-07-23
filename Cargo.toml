@@ -1,6 +1,6 @@
 [package]
 name = "orion-core"
-version = "0.5.0"
+version = "0.6.0"
 description = "Backend-agnostic agent harness for local LLM inference"
 authors = ["Kumar Anirudha <anirudhastark@gmail.com>"]
 license = "MIT"
