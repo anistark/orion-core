@@ -6,6 +6,43 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-06
+
+### Added
+- **`ChatBackend`: a backend fed messages rather than a formatted prompt.** A hosted
+  chat API takes a structured message list and applies the model's own template
+  server-side, so handing it a templated string means either templating twice or
+  collapsing the whole conversation into a single user turn - which is what
+  `OpenAiHttpBackend` does today against `OpenAiEndpoint::Chat`. Implementors get
+  `system` and `&[Message]` and the agent skips its own templating for them.
+  Everything else - pruning, the tool loop, the event stream - is unchanged. The
+  trait is `async`, because the work behind it is I/O rather than compute and there
+  is no reason to hold a blocking thread for it. Gated on the new `chat-backend`
+  feature, on by default.
+- **`Backend`, the enum a turn actually runs against.** Callers do not name it:
+  `Arc<dyn LlmBackend>` and `Arc<dyn ChatBackend>` both convert into it. A local
+  engine keeps the `spawn_blocking` path it needs; a hosted one stays async.
+- **`Agent::send`.** Runs a turn and answers with the assistant's message, for a
+  caller that is not streaming. `prompt` reports everything through events, which
+  is what streaming wants and what a caller who only needs the answer had to unpick
+  for itself. An error the agent reported as an event comes back as `Err`, since a
+  caller with no event stream has nowhere else to see it.
+- **`estimate_tokens`.** The four-characters-a-token approximation, public now that
+  it is the default for backends with no local tokenizer.
+
+### Changed
+- **`Agent::prompt` and `Agent::prompt_stream` take `impl Into<Backend>`.** Existing
+  callers passing `Arc<dyn LlmBackend>` are unaffected.
+- **`LlmBackend::tokenize_count` and `LlmBackend::is_ready` are provided methods.**
+  A remote backend cannot tokenize locally, and making every implementor invent a
+  number was worse than defaulting to the estimate. `is_ready` defaults to true,
+  which is the right answer for a backend with nothing to load. Existing overrides
+  keep working.
+- **`PreparedContext` carries `system` and `messages`** beside `prompt`: the system
+  block without template markup, and the turns that survived pruning. Breaking for
+  anyone constructing the struct by hand rather than taking it from
+  `prepare_context`.
+
 ## [0.6.0] - 2026-07-23
 
 ### Added

@@ -106,7 +106,7 @@ The `tools` feature is **on by default** and pulls in
 only need plain chat can drop it:
 
 ```toml
-orion-core = { version = "0.2", default-features = false }
+orion-core = { version = "0.7", default-features = false }
 ```
 
 Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`, `ToolSchema`) stays
@@ -119,7 +119,7 @@ a streaming client for any OpenAI-compatible server; it pulls in a blocking HTTP
 client, so it stays opt-in:
 
 ```toml
-orion-core = { version = "0.5", features = ["http-backend"] }
+orion-core = { version = "0.7", features = ["http-backend"] }
 ```
 
 ## Next steps

@@ -108,7 +108,11 @@ pub mod tools;
 pub use agent::{Agent, AgentConfig};
 #[cfg(feature = "tools")]
 pub use agent::{ApprovalDecision, ApprovalHook};
-pub use backend::{GenerationResult, InferenceParams, LlmBackend, TokenCallback};
+#[cfg(feature = "chat-backend")]
+pub use backend::ChatBackend;
+pub use backend::{
+    estimate_tokens, Backend, GenerationResult, InferenceParams, LlmBackend, TokenCallback,
+};
 #[cfg(feature = "http-backend")]
 pub use backends::{OpenAiConfig, OpenAiEndpoint, OpenAiHttpBackend};
 pub use context::{plan_prune, ContextConfig, PreparedContext, PrunePlan, PruneStrategy};

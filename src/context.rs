@@ -41,6 +41,12 @@ impl Default for ContextConfig {
 pub struct PreparedContext {
     /// The fully formatted prompt string to feed the backend.
     pub prompt: String,
+    /// The system prompt with any tool instructions folded in, without template markup.
+    /// What a [`ChatBackend`](crate::ChatBackend) sends as its system message.
+    pub system: String,
+    /// The messages that survived pruning, in order, carrying no system message. What a
+    /// [`ChatBackend`](crate::ChatBackend) sends instead of `prompt`.
+    pub messages: Vec<Message>,
     /// Total token count of `prompt`.
     pub token_count: u32,
     /// Number of conversation messages kept in the prompt.
@@ -262,9 +268,12 @@ pub fn prepare_context(
 
     let prompt = template.format(system_prompt, &kept, tools);
     let token_count = token_counter(&prompt);
+    let system = format!("{system_prompt}{}", crate::template::render_tools(tools));
 
     Ok(PreparedContext {
         prompt,
+        system,
+        messages: kept,
         token_count,
         messages_included: kept_count,
         messages_pruned: pruned,

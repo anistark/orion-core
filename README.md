@@ -410,7 +410,7 @@ Tool schemas are automatically injected into the system prompt when formatting c
 Minimal consumers that only need plain chat can drop it:
 
 ```toml
-orion-core = { version = "0.2", default-features = false }
+orion-core = { version = "0.7", default-features = false }
 ```
 
 Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`) and `ToolSchema` stay

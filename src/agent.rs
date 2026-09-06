@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use log;
 use tokio::sync::mpsc;
 
-use crate::backend::{GenerationResult, InferenceParams, LlmBackend};
-use crate::context::{plan_prune, prepare_context, ContextConfig, PruneStrategy};
+use crate::backend::{Backend, GenerationResult, InferenceParams, TokenCallback};
+use crate::context::{plan_prune, prepare_context, ContextConfig, PreparedContext, PruneStrategy};
 use crate::error::{CoreError, CoreResult};
 use crate::events::AgentEvent;
 use crate::messages::{Message, Role, ToolCall};
@@ -25,6 +25,9 @@ const SUMMARY_MARKER: &str = "[Summary of earlier conversation]";
 
 /// Token budget for a summarization pass.
 const SUMMARY_MAX_TOKENS: u32 = 320;
+
+/// The frame a summarization pass runs under.
+const SUMMARY_SYSTEM: &str = "You summarize conversations faithfully and concisely.";
 
 /// Agent configuration.
 #[derive(Debug, Clone)]
@@ -344,9 +347,10 @@ impl Agent {
     pub async fn prompt(
         &mut self,
         text: impl Into<String>,
-        backend: Arc<dyn LlmBackend>,
+        backend: impl Into<Backend>,
         tx: mpsc::UnboundedSender<AgentEvent>,
     ) -> CoreResult<()> {
+        let backend = backend.into();
         let text = text.into().trim().to_string();
         if text.is_empty() {
             return Err(CoreError::Agent("Empty message".into()));
@@ -379,7 +383,7 @@ impl Agent {
         for iteration in 0..self.config.max_tool_iterations {
             tx.send(AgentEvent::TurnStart).ok();
 
-            let gen = match self.generate_once(backend.clone(), &tx).await {
+            let gen = match self.generate_once(&backend, &tx).await {
                 Ok(gen) => gen,
                 Err(CoreError::Aborted) => {
                     // Aborted mid-generation: record an (empty) assistant turn
@@ -657,15 +661,51 @@ impl Agent {
     pub fn prompt_stream(
         &mut self,
         text: impl Into<String>,
-        backend: Arc<dyn LlmBackend>,
+        backend: impl Into<Backend>,
     ) -> (
         mpsc::UnboundedReceiver<AgentEvent>,
         impl std::future::Future<Output = CoreResult<()>> + '_,
     ) {
         let (tx, rx) = mpsc::unbounded_channel();
         let text = text.into();
+        let backend = backend.into();
         let fut = async move { self.prompt(text, backend, tx).await };
         (rx, fut)
+    }
+
+    /// Run a turn and answer with the reply, for a caller that is not streaming.
+    ///
+    /// [`prompt`](Self::prompt) reports everything through events, which is what streaming
+    /// wants and what a caller that only needs the answer has to unpick for itself. This
+    /// runs the same turn, drains the events and hands back the assistant's final message.
+    ///
+    /// An error the agent reported as an event is returned as `Err` here: a caller with no
+    /// event stream has nowhere else to see it, and answering `Ok` with no reply would be
+    /// a failure that reads like a silence.
+    pub async fn send(
+        &mut self,
+        text: impl Into<String>,
+        backend: impl Into<Backend>,
+    ) -> CoreResult<Message> {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        self.prompt(text, backend, tx).await?;
+
+        // The channel is unbounded and the turn is over, so everything it produced is
+        // already queued and draining it cannot block.
+        let mut reply = None;
+        let mut failed = None;
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                AgentEvent::TurnEnd { message, .. } => reply = Some(message),
+                AgentEvent::Error { message } => failed = Some(message),
+                _ => {}
+            }
+        }
+
+        if let Some(message) = failed {
+            return Err(CoreError::Agent(message));
+        }
+        reply.ok_or_else(|| CoreError::Agent("The agent produced no reply".into()))
     }
 
     /// Run a single LLM generation over the current conversation.
@@ -676,7 +716,7 @@ impl Agent {
     /// overflow, backend-not-ready, `Aborted`, or a generation failure).
     async fn generate_once(
         &self,
-        backend: Arc<dyn LlmBackend>,
+        backend: &Backend,
         tx: &mpsc::UnboundedSender<AgentEvent>,
     ) -> CoreResult<GenerationResult> {
         let messages = self.messages.clone();
@@ -690,35 +730,23 @@ impl Agent {
         let token_tx = tx.clone();
         let budget_tx = tx.clone();
 
-        log::debug!(
-            "Agent::generate_once: spawning blocking (max_tokens={}, temp={}, ctx={}, threads={})",
-            params.max_tokens,
-            params.temperature,
-            params.context_size,
-            params.n_threads,
-        );
+        let on_token: TokenCallback = Box::new(move |token, count, tps| {
+            token_tx
+                .send(AgentEvent::MessageDelta {
+                    delta: token.to_string(),
+                    tokens_generated: count,
+                    tokens_per_sec: tps,
+                })
+                .ok();
+        });
 
-        let handle = tokio::task::spawn_blocking(move || {
-            if !backend.is_ready() {
-                return Err(CoreError::Backend("No model loaded".into()));
-            }
-
-            let prepared = prepare_context(
-                template.as_ref(),
-                &system_prompt,
-                &messages,
-                &tool_schemas,
-                &ctx_config,
-                &|text| backend.tokenize_count(text).unwrap_or(0),
-            )?;
-
+        let report = move |prepared: &PreparedContext| {
             log::debug!(
                 "Context prepared: tokens={}, kept={}, pruned={}",
                 prepared.token_count,
                 prepared.messages_included,
                 prepared.messages_pruned,
             );
-
             budget_tx
                 .send(AgentEvent::ContextBudget {
                     used_tokens: prepared.token_count,
@@ -727,27 +755,74 @@ impl Agent {
                     messages_pruned: prepared.messages_pruned,
                 })
                 .ok();
+        };
 
-            backend.generate(
-                &prepared.prompt,
-                &params,
-                abort,
-                Box::new(move |token, count, tps| {
-                    token_tx
-                        .send(AgentEvent::MessageDelta {
-                            delta: token.to_string(),
-                            tokens_generated: count,
-                            tokens_per_sec: tps,
-                        })
-                        .ok();
-                }),
-            )
-        });
+        match backend {
+            // A local engine tokenizes and generates on the calling thread, so context
+            // preparation goes to a blocking one along with it.
+            Backend::Prompt(backend) => {
+                let backend = backend.clone();
+                log::debug!(
+                    "Agent::generate_once: spawning blocking (max_tokens={}, temp={}, ctx={}, threads={})",
+                    params.max_tokens,
+                    params.temperature,
+                    params.context_size,
+                    params.n_threads,
+                );
 
-        handle.await.map_err(|e| {
-            log::error!("Agent::generate_once: blocking task panicked: {e}");
-            CoreError::Agent(format!("Inference task failed: {e}"))
-        })?
+                let handle = tokio::task::spawn_blocking(move || {
+                    if !backend.is_ready() {
+                        return Err(CoreError::Backend("No model loaded".into()));
+                    }
+
+                    let prepared = prepare_context(
+                        template.as_ref(),
+                        &system_prompt,
+                        &messages,
+                        &tool_schemas,
+                        &ctx_config,
+                        &|text| backend.tokenize_count(text).unwrap_or(0),
+                    )?;
+                    report(&prepared);
+
+                    backend.generate(&prepared.prompt, &params, abort, on_token)
+                });
+
+                handle.await.map_err(|e| {
+                    log::error!("Agent::generate_once: blocking task panicked: {e}");
+                    CoreError::Agent(format!("Inference task failed: {e}"))
+                })?
+            }
+
+            // A hosted endpoint is I/O, and its token count is an estimate that costs
+            // nothing, so preparation stays on this thread and only the request is awaited.
+            #[cfg(feature = "chat-backend")]
+            Backend::Chat(backend) => {
+                if !backend.is_ready() {
+                    return Err(CoreError::Backend("Backend not ready".into()));
+                }
+
+                let prepared = prepare_context(
+                    template.as_ref(),
+                    &system_prompt,
+                    &messages,
+                    &tool_schemas,
+                    &ctx_config,
+                    &|text| backend.tokenize_count(text),
+                )?;
+                report(&prepared);
+
+                backend
+                    .chat(
+                        &prepared.system,
+                        &prepared.messages,
+                        &params,
+                        abort,
+                        on_token,
+                    )
+                    .await
+            }
+        }
     }
 
     /// Dispatch one parsed tool call to its registered [`Tool`].
@@ -790,7 +865,7 @@ impl Agent {
     /// sliding-window pruning in `prepare_context` then applies.
     async fn compress_if_needed(
         &mut self,
-        backend: &Arc<dyn LlmBackend>,
+        backend: &Backend,
         tx: &mpsc::UnboundedSender<AgentEvent>,
     ) {
         if self.config.context_config.prune_strategy != PruneStrategy::Summarize {
@@ -803,83 +878,75 @@ impl Agent {
         let ctx_config = self.config.context_config.clone();
         let template = self.template.clone();
         let abort = self.abort.clone();
-        let params = self.config.inference_params.clone();
-        let backend = backend.clone();
+        let sum_params = InferenceParams {
+            max_tokens: SUMMARY_MAX_TOKENS,
+            ..self.config.inference_params.clone()
+        };
 
-        // Plan + summarize on a blocking thread (tokenize + generate block).
-        let outcome = tokio::task::spawn_blocking(move || -> Option<(Vec<usize>, String)> {
-            if !backend.is_ready() {
-                return None;
+        let outcome: Option<(Vec<usize>, String)> = match backend {
+            // Plan and summarize on a blocking thread: tokenizing and generating both block.
+            Backend::Prompt(backend) => {
+                let backend = backend.clone();
+                tokio::task::spawn_blocking(move || {
+                    if !backend.is_ready() {
+                        return None;
+                    }
+                    let counter = |text: &str| backend.tokenize_count(text).unwrap_or(0);
+                    let (remove, _asked, prompt) = plan_summary(
+                        template.as_ref(),
+                        &system_prompt,
+                        &messages,
+                        &tools,
+                        &ctx_config,
+                        &counter,
+                    )?;
+
+                    let gen = backend
+                        .generate(&prompt, &sum_params, abort, Box::new(|_, _, _| {}))
+                        .ok()?;
+                    let summary = gen.text.trim().to_string();
+                    (!summary.is_empty()).then_some((remove, summary))
+                })
+                .await
+                .ok()
+                .flatten()
             }
-            let counter = |t: &str| backend.tokenize_count(t).unwrap_or(0);
-            let plan = plan_prune(
-                template.as_ref(),
-                &system_prompt,
-                &messages,
-                &tools,
-                &ctx_config,
-                &counter,
-            )
-            .ok()?;
-            if plan.dropped.is_empty() {
-                return None; // everything fits - nothing to summarize
+
+            #[cfg(feature = "chat-backend")]
+            Backend::Chat(backend) => {
+                let counter = |text: &str| backend.tokenize_count(text);
+                let planned = backend.is_ready().then(|| {
+                    plan_summary(
+                        template.as_ref(),
+                        &system_prompt,
+                        &messages,
+                        &tools,
+                        &ctx_config,
+                        &counter,
+                    )
+                });
+
+                match planned.flatten() {
+                    None => None,
+                    Some((remove, asked, _prompt)) => backend
+                        .chat(
+                            SUMMARY_SYSTEM,
+                            std::slice::from_ref(&asked),
+                            &sum_params,
+                            abort,
+                            Box::new(|_, _, _| {}),
+                        )
+                        .await
+                        .ok()
+                        .and_then(|gen| {
+                            let summary = gen.text.trim().to_string();
+                            (!summary.is_empty()).then_some((remove, summary))
+                        }),
+                }
             }
+        };
 
-            // Indices to fold away: the dropped turns plus any prior summary
-            // (pinned, so it never lands in `dropped`) - consolidated into one.
-            let mut remove: Vec<usize> = plan.dropped.iter().flat_map(|r| r.clone()).collect();
-            let prior_summary = messages
-                .iter()
-                .position(|m| m.pinned && m.content.starts_with(SUMMARY_MARKER));
-            let prior_body = prior_summary.map(|i| {
-                remove.push(i);
-                messages[i]
-                    .content
-                    .strip_prefix(SUMMARY_MARKER)
-                    .unwrap_or(&messages[i].content)
-                    .trim()
-                    .to_string()
-            });
-            remove.sort_unstable();
-            remove.dedup();
-
-            let transcript = render_transcript(&messages, &remove);
-            let mut body = String::new();
-            if let Some(prev) = prior_body.filter(|s| !s.is_empty()) {
-                body.push_str("Earlier summary:\n");
-                body.push_str(&prev);
-                body.push_str("\n\n");
-            }
-            body.push_str("Conversation excerpt:\n");
-            body.push_str(&transcript);
-
-            let instruction = "You compress conversation history. Summarize the \
-                 material below into a concise note that preserves key facts, \
-                 decisions, names, and unresolved questions. Reply with only the \
-                 summary.";
-            let req = Message::user("summary-req", format!("{instruction}\n\n{body}"));
-            let prompt = template.format(
-                "You summarize conversations faithfully and concisely.",
-                std::slice::from_ref(&req),
-                &[],
-            );
-
-            let sum_params = InferenceParams {
-                max_tokens: SUMMARY_MAX_TOKENS,
-                ..params
-            };
-            let gen = backend
-                .generate(&prompt, &sum_params, abort, Box::new(|_, _, _| {}))
-                .ok()?;
-            let summary = gen.text.trim().to_string();
-            if summary.is_empty() {
-                return None;
-            }
-            Some((remove, summary))
-        })
-        .await;
-
-        let Some((remove, summary)) = outcome.ok().flatten() else {
+        let Some((remove, summary)) = outcome else {
             return;
         };
 
@@ -919,6 +986,70 @@ impl Agent {
 }
 
 /// Render selected messages as a plain-text transcript for summarization.
+/// What a summarization pass would fold away and what it would ask for, worked out without
+/// touching a backend. `None` when everything fits and there is nothing to fold.
+///
+/// Answers with the message indices to remove, the request as a [`Message`] for a chat
+/// backend, and the same request formatted for a prompt backend.
+fn plan_summary(
+    template: &dyn ChatTemplate,
+    system_prompt: &str,
+    messages: &[Message],
+    tools: &[ToolSchema],
+    ctx_config: &ContextConfig,
+    counter: &dyn Fn(&str) -> u32,
+) -> Option<(Vec<usize>, Message, String)> {
+    let plan = plan_prune(
+        template,
+        system_prompt,
+        messages,
+        tools,
+        ctx_config,
+        counter,
+    )
+    .ok()?;
+    if plan.dropped.is_empty() {
+        return None; // everything fits - nothing to summarize
+    }
+
+    // Indices to fold away: the dropped turns plus any prior summary (pinned, so it never
+    // lands in `dropped`) - consolidated into one.
+    let mut remove: Vec<usize> = plan.dropped.iter().flat_map(|r| r.clone()).collect();
+    let prior_summary = messages
+        .iter()
+        .position(|m| m.pinned && m.content.starts_with(SUMMARY_MARKER));
+    let prior_body = prior_summary.map(|i| {
+        remove.push(i);
+        messages[i]
+            .content
+            .strip_prefix(SUMMARY_MARKER)
+            .unwrap_or(&messages[i].content)
+            .trim()
+            .to_string()
+    });
+    remove.sort_unstable();
+    remove.dedup();
+
+    let transcript = render_transcript(messages, &remove);
+    let mut body = String::new();
+    if let Some(prev) = prior_body.filter(|s| !s.is_empty()) {
+        body.push_str("Earlier summary:\n");
+        body.push_str(&prev);
+        body.push_str("\n\n");
+    }
+    body.push_str("Conversation excerpt:\n");
+    body.push_str(&transcript);
+
+    let instruction = "You compress conversation history. Summarize the \
+         material below into a concise note that preserves key facts, \
+         decisions, names, and unresolved questions. Reply with only the \
+         summary.";
+    let asked = Message::user("summary-req", format!("{instruction}\n\n{body}"));
+    let prompt = template.format(SUMMARY_SYSTEM, std::slice::from_ref(&asked), &[]);
+
+    Some((remove, asked, prompt))
+}
+
 fn render_transcript(messages: &[Message], indices: &[usize]) -> String {
     indices
         .iter()

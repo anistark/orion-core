@@ -29,7 +29,7 @@ pub trait ChatTemplate: Send + Sync {
 /// Every template advertises tools the same way (a description list plus a
 /// `tool_call` JSON convention) so the agent's tool-call parser stays
 /// format-agnostic. Returns an empty string when there are no tools.
-fn render_tools(tools: &[ToolSchema]) -> String {
+pub(crate) fn render_tools(tools: &[ToolSchema]) -> String {
     if tools.is_empty() {
         return String::new();
     }
