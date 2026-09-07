@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-07
+
+### Added
+- **`OpenAiHttpBackend` implements `ChatBackend`.** 0.7.0 added the message-native
+  path and left the crate's own HTTP backend on the prompt one, which meant the
+  collapse it was released to fix still happened to anyone using it against a
+  hosted chat API: `OpenAiEndpoint::Chat` delivers an already-templated prompt as
+  a single user message. Driven as a `ChatBackend` it now sends
+  `/v1/chat/completions` a real message list, system prompt included, and the
+  server applies the model's own template. The `LlmBackend` impl is untouched and
+  is still the one to use against `/v1/completions`, where a raw prompt is the
+  point. `OpenAiConfig::endpoint` is not consulted on the chat path, since a
+  message list has only one endpoint it can mean.
+- **`PartialEq` on `Message`, `ToolCall` and `ToolResult`,** so a consumer can
+  assert on a conversation without comparing it field by field.
+
+### Changed
+- **The blocking HTTP client is built on first use.** It carries a runtime of its
+  own, and building or dropping one inside an async context panics, so a backend
+  driven only through `ChatBackend` must never make one. A failure to build it now
+  surfaces from `generate` rather than from `OpenAiHttpBackend::new`.
+- Both transports read one shared SSE envelope reader, so the blocking and async
+  paths cannot drift on what a usage block or a `[DONE]` means.
+
+### Documented
+- The summarize strategy is now tested through a chat backend as well as a prompt
+  one. It was planned the same way for both and only ever exercised through one.
+
 ## [0.7.0] - 2026-09-06
 
 ### Added

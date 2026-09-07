@@ -17,7 +17,7 @@ pub enum Role {
 }
 
 /// A tool invocation requested by the assistant.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolCall {
     /// Unique id linking this call to its [`ToolResult`].
     pub id: String,
@@ -28,7 +28,7 @@ pub struct ToolCall {
 }
 
 /// Result of executing a tool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolResult {
     /// Id of the [`ToolCall`] this result answers.
     pub tool_call_id: String,
@@ -41,7 +41,7 @@ pub struct ToolResult {
 }
 
 /// A single message in the conversation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     /// Stable identifier for the message (used to address pins and tool results).
     pub id: String,

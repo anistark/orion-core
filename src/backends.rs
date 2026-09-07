@@ -8,11 +8,15 @@
 
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "chat-backend")]
+use crate::backend::ChatBackend;
 use crate::backend::{GenerationResult, InferenceParams, LlmBackend, TokenCallback};
 use crate::error::{CoreError, CoreResult};
+#[cfg(feature = "chat-backend")]
+use crate::messages::{Message, Role};
 
 /// Default request timeout when none is set.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -120,7 +124,15 @@ impl OpenAiConfig {
 /// // agent.prompt("Hello", backend, tx).await?;
 /// ```
 pub struct OpenAiHttpBackend {
-    client: reqwest::blocking::Client,
+    /// For the [`LlmBackend`] path, which the trait makes synchronous.
+    ///
+    /// Built on first use and not before. A blocking client carries a runtime of its own,
+    /// and building or dropping one inside an async context panics, so a backend driven
+    /// only through [`ChatBackend`] must never make one.
+    blocking: OnceLock<reqwest::blocking::Client>,
+    /// For the [`ChatBackend`] path, which it does not.
+    #[cfg(feature = "chat-backend")]
+    streaming: reqwest::Client,
     config: OpenAiConfig,
 }
 
@@ -130,11 +142,35 @@ impl OpenAiHttpBackend {
     /// Returns [`CoreError::Backend`] if the underlying HTTP client cannot be
     /// constructed (e.g. the platform TLS backend fails to initialize).
     pub fn new(config: OpenAiConfig) -> CoreResult<Self> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(config.timeout)
+        Ok(Self {
+            blocking: OnceLock::new(),
+            #[cfg(feature = "chat-backend")]
+            streaming: reqwest::Client::builder()
+                .timeout(config.timeout)
+                .build()
+                .map_err(|e| CoreError::Backend(format!("failed to build HTTP client: {e}")))?,
+            config,
+        })
+    }
+
+    /// The blocking client, built the first time one is wanted.
+    ///
+    /// A loser in a race gets the winner's client rather than its own, which is what
+    /// `OnceLock` is for: two would mean two runtimes for one backend.
+    fn blocking(&self) -> CoreResult<&reqwest::blocking::Client> {
+        if let Some(client) = self.blocking.get() {
+            return Ok(client);
+        }
+
+        let built = reqwest::blocking::Client::builder()
+            .timeout(self.config.timeout)
             .build()
             .map_err(|e| CoreError::Backend(format!("failed to build HTTP client: {e}")))?;
-        Ok(Self { client, config })
+        let _ = self.blocking.set(built);
+
+        self.blocking
+            .get()
+            .ok_or_else(|| CoreError::Backend("HTTP client went missing".into()))
     }
 }
 
@@ -168,7 +204,7 @@ impl LlmBackend for OpenAiHttpBackend {
         };
 
         let url = format!("{}/{path}", self.config.base_url);
-        let mut req = self.client.post(&url).json(&body);
+        let mut req = self.blocking()?.post(&url).json(&body);
         if let Some(key) = &self.config.api_key {
             req = req.bearer_auth(key);
         }
@@ -208,41 +244,24 @@ impl LlmBackend for OpenAiHttpBackend {
             let Some(data) = line.strip_prefix("data: ") else {
                 continue;
             };
-            let data = data.trim();
-            if data == "[DONE]" {
+
+            // The same envelope the async path reads, so the two cannot drift on what a
+            // usage block or a `[DONE]` means.
+            let piece = read_event(data, self.config.endpoint);
+            usage_prompt = piece.prompt_tokens.or(usage_prompt);
+            usage_completion = piece.completion_tokens.or(usage_completion);
+
+            if piece.done {
                 break;
             }
-            let Ok(chunk) = serde_json::from_str::<serde_json::Value>(data) else {
-                continue;
-            };
-
-            // Usage arrives in a trailing chunk (with `include_usage`).
-            if let Some(usage) = chunk.get("usage").filter(|u| !u.is_null()) {
-                usage_prompt = usage
-                    .get("prompt_tokens")
-                    .and_then(|v| v.as_u64())
-                    .map(|n| n as u32);
-                usage_completion = usage
-                    .get("completion_tokens")
-                    .and_then(|v| v.as_u64())
-                    .map(|n| n as u32);
-            }
-
-            let piece = match self.config.endpoint {
-                OpenAiEndpoint::Chat => chunk["choices"][0]["delta"]["content"].as_str(),
-                OpenAiEndpoint::Completions => chunk["choices"][0]["text"].as_str(),
-            };
-            if let Some(piece) = piece {
-                if piece.is_empty() {
-                    continue;
-                }
+            if let Some(said) = piece.text {
                 if streamed == 0 {
                     ttft_ms = start.elapsed().as_secs_f64() * 1000.0;
                 }
                 streamed += 1;
-                text.push_str(piece);
+                text.push_str(&said);
                 let elapsed = start.elapsed().as_secs_f64().max(1e-6);
-                on_token(piece, streamed, streamed as f64 / elapsed);
+                on_token(&said, streamed, streamed as f64 / elapsed);
             }
         }
 
@@ -269,5 +288,202 @@ impl LlmBackend for OpenAiHttpBackend {
 
     fn is_ready(&self) -> bool {
         true
+    }
+}
+
+/// What one server-sent event carries, whichever way its bytes arrived.
+///
+/// The two paths differ in transport and not in envelope, so the reading of one is shared:
+/// a blocking reader hands over lines, an async one hands over chunks that have to be cut
+/// into lines first, and both end up here.
+#[derive(Debug, Default)]
+struct Piece {
+    text: Option<String>,
+    prompt_tokens: Option<u32>,
+    completion_tokens: Option<u32>,
+    /// The `[DONE]` sentinel, after which nothing else is coming.
+    done: bool,
+}
+
+/// Read one `data:` payload. A payload that will not parse is skipped rather than fatal:
+/// servers vary in what they put between events, and one unreadable line is a worse reason
+/// to fail a turn than it is to ignore.
+fn read_event(data: &str, endpoint: OpenAiEndpoint) -> Piece {
+    let data = data.trim();
+    if data == "[DONE]" {
+        return Piece {
+            done: true,
+            ..Piece::default()
+        };
+    }
+
+    let Ok(chunk) = serde_json::from_str::<serde_json::Value>(data) else {
+        return Piece::default();
+    };
+
+    let usage = chunk.get("usage").filter(|usage| !usage.is_null());
+    let count = |name: &str| {
+        usage
+            .and_then(|usage| usage.get(name))
+            .and_then(serde_json::Value::as_u64)
+            .map(|n| n as u32)
+    };
+
+    let text = match endpoint {
+        OpenAiEndpoint::Chat => chunk["choices"][0]["delta"]["content"].as_str(),
+        OpenAiEndpoint::Completions => chunk["choices"][0]["text"].as_str(),
+    };
+
+    Piece {
+        text: text.filter(|piece| !piece.is_empty()).map(str::to_string),
+        prompt_tokens: count("prompt_tokens"),
+        completion_tokens: count("completion_tokens"),
+        done: false,
+    }
+}
+
+/// The messages as `/v1/chat/completions` takes them.
+///
+/// The system prompt arrives beside the turns and goes on the front as one of them, which
+/// is how every chat API takes it. A tool result becomes a user turn carrying the
+/// observation rather than a `tool` message, because the API's `tool` role requires a
+/// `tool_call_id` that this crate's text-based tool convention never mints; an assistant
+/// turn that asked for a tool keeps its text, which is where the call is written.
+#[cfg(feature = "chat-backend")]
+fn wire(system: &str, messages: &[Message]) -> Vec<serde_json::Value> {
+    let mut turns = Vec::with_capacity(messages.len() + 1);
+    if !system.trim().is_empty() {
+        turns.push(serde_json::json!({ "role": "system", "content": system }));
+    }
+
+    for message in messages {
+        let (role, content) = match message.role {
+            Role::System => ("system", message.content.clone()),
+            Role::User => ("user", message.content.clone()),
+            Role::Assistant | Role::ToolCall => ("assistant", message.content.clone()),
+            Role::ToolResult => ("user", format!("[Tool result]\n{}", message.content)),
+        };
+        turns.push(serde_json::json!({ "role": role, "content": content }));
+    }
+
+    turns
+}
+
+/// The message-native half.
+///
+/// This is the one to use against a hosted chat API. [`LlmBackend`] hands a backend a
+/// prompt that has already had a template applied, and delivering that to
+/// `/v1/chat/completions` means stuffing an entire conversation into a single user turn,
+/// markup and all. Here the turns arrive as turns and the server applies the model's own
+/// template, which is what it is for.
+///
+/// [`OpenAiConfig::endpoint`] is not consulted: `/v1/completions` takes a prompt and not a
+/// conversation, so a message-native path has only one endpoint it can mean. Use the
+/// [`LlmBackend`] impl for that one.
+#[cfg(feature = "chat-backend")]
+#[async_trait::async_trait]
+impl ChatBackend for OpenAiHttpBackend {
+    async fn chat(
+        &self,
+        system: &str,
+        messages: &[Message],
+        params: &InferenceParams,
+        abort: Arc<AtomicBool>,
+        mut on_token: TokenCallback,
+    ) -> CoreResult<GenerationResult> {
+        let body = serde_json::json!({
+            "model": self.config.model,
+            "messages": wire(system, messages),
+            "max_tokens": params.max_tokens,
+            "temperature": params.temperature,
+            "stream": true,
+            "stream_options": { "include_usage": true },
+        });
+
+        let url = format!("{}/chat/completions", self.config.base_url);
+        let mut request = self.streaming.post(&url).json(&body);
+        if let Some(key) = &self.config.api_key {
+            request = request.bearer_auth(key);
+        }
+
+        // No response at all is the endpoint being unreachable, which is retryable. A
+        // response carrying an error is the endpoint answering, which is not.
+        let mut response = request
+            .send()
+            .await
+            .map_err(|e| CoreError::BackendUnreachable(format!("request to {url} failed: {e}")))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let detail = response.text().await.unwrap_or_default();
+            return Err(CoreError::Backend(format!(
+                "endpoint returned HTTP {}: {}",
+                status.as_u16(),
+                detail.trim()
+            )));
+        }
+
+        let start = Instant::now();
+        let mut ttft_ms = 0.0;
+        let mut text = String::new();
+        let mut streamed: u32 = 0;
+        let mut usage_prompt: Option<u32> = None;
+        let mut usage_completion: Option<u32> = None;
+        // A read off the wire is a length of bytes, not a line: one event can arrive split
+        // across two and two can arrive in one, so the remainder waits for its newline.
+        let mut pending = String::new();
+        let mut finished = false;
+
+        while !finished {
+            if abort.load(Ordering::Relaxed) {
+                return Err(CoreError::Aborted);
+            }
+
+            let Some(bytes) = response
+                .chunk()
+                .await
+                .map_err(|e| CoreError::BackendUnreachable(format!("stream read failed: {e}")))?
+            else {
+                break;
+            };
+            pending.push_str(&String::from_utf8_lossy(&bytes));
+
+            while let Some(at) = pending.find('\n') {
+                let line: String = pending.drain(..=at).collect();
+                let Some(data) = line.trim_end().strip_prefix("data: ") else {
+                    continue;
+                };
+
+                let piece = read_event(data, OpenAiEndpoint::Chat);
+                usage_prompt = piece.prompt_tokens.or(usage_prompt);
+                usage_completion = piece.completion_tokens.or(usage_completion);
+
+                if piece.done {
+                    finished = true;
+                    break;
+                }
+                if let Some(said) = piece.text {
+                    if streamed == 0 {
+                        ttft_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    }
+                    streamed += 1;
+                    text.push_str(&said);
+                    let elapsed = start.elapsed().as_secs_f64().max(1e-6);
+                    on_token(&said, streamed, streamed as f64 / elapsed);
+                }
+            }
+        }
+
+        let gen_ms = start.elapsed().as_secs_f64() * 1000.0;
+        // The server's real counts when it gave them, and what was streamed when it did not.
+        let tokens_generated = usage_completion.unwrap_or(streamed);
+        Ok(GenerationResult {
+            text,
+            tokens_generated,
+            prompt_tokens: usage_prompt.unwrap_or(0),
+            tokens_per_sec: tokens_generated as f64 / (gen_ms / 1000.0).max(1e-6),
+            time_to_first_token_ms: ttft_ms,
+            generation_time_ms: gen_ms,
+        })
     }
 }

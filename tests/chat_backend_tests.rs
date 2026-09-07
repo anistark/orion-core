@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use orion_core::{
-    Agent, AgentConfig, ChatBackend, CoreResult, GenerationResult, InferenceParams, Message, Role,
-    TokenCallback,
+    Agent, AgentConfig, ChatBackend, ContextConfig, CoreResult, GenerationResult, InferenceParams,
+    Message, PruneStrategy, Role, TokenCallback,
 };
 
 /// A backend that answers with a fixed reply and keeps what it was handed, so a test can
@@ -132,4 +132,67 @@ async fn the_reply_lands_in_the_conversation() {
         .map(|m| m.content.as_str())
         .collect();
     assert_eq!(kept, vec!["What is here?", "Atlantis."]);
+}
+
+/// The summarize strategy folds the oldest turns into a pinned note rather than dropping
+/// them. It is planned the same way for either kind of backend and run differently, and
+/// only the prompt path had a test saying so.
+#[tokio::test]
+async fn an_overflowing_conversation_is_summarized_through_a_chat_backend() {
+    let backend = Arc::new(Recorder::default());
+    let mut agent = Agent::new(AgentConfig {
+        system_prompt: "You are Odin.".into(),
+        context_config: ContextConfig {
+            max_context_tokens: 200,
+            max_response_tokens: 100,
+            prune_strategy: PruneStrategy::Summarize,
+        },
+        ..Default::default()
+    });
+
+    // Six turns of about ten tokens each against a budget of roughly ninety, so the oldest
+    // cannot fit and the newest comfortably can.
+    let said = "a".repeat(40);
+    agent.replace_messages(
+        (0..6)
+            .flat_map(|n| {
+                [
+                    Message::user(format!("u{n}"), &said),
+                    Message::assistant(format!("a{n}"), &said),
+                ]
+            })
+            .collect(),
+    );
+
+    agent
+        .send("And now?", backend.clone() as Arc<dyn ChatBackend>)
+        .await
+        .unwrap();
+
+    let seen = backend.seen.lock().unwrap();
+    assert!(
+        seen.len() >= 2,
+        "summarizing is a turn of its own, taken before the one that was asked for",
+    );
+
+    let (system, asked) = &seen[0];
+    assert!(
+        system.contains("summarize"),
+        "the summarizer frames itself: {system:?}"
+    );
+    assert!(
+        asked[0].content.contains("Conversation excerpt:"),
+        "the pass is handed the turns it is folding away",
+    );
+
+    // What it answered with is kept as a pinned note, which is what survives the next prune.
+    let folded = agent
+        .messages()
+        .iter()
+        .find(|message| message.pinned)
+        .expect("a summary should have been folded in");
+    assert!(folded
+        .content
+        .starts_with("[Summary of earlier conversation]"));
+    assert!(folded.content.contains("Atlantis."));
 }
