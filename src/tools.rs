@@ -26,6 +26,8 @@ pub struct ParsedToolCall {
 /// format:
 ///
 /// 1. Every ```` ```tool_call ```` and ```` ```json ```` fenced block is parsed.
+///    The tag is matched after trimming any punctuation around it, so a model
+///    that writes ```` ```tool_call> ```` or ```` ```<json> ```` still triggers.
 /// 2. If no fenced block yields a call, the *whole trimmed message* is tried as
 ///    a single JSON object - but only when it carries both `name` and
 ///    `arguments` keys.
@@ -106,14 +108,24 @@ fn call_from_value(value: &serde_json::Value) -> Option<ParsedToolCall> {
     Some(ParsedToolCall { name, arguments })
 }
 
-/// A fenced code block: its info-string tag (lower-cased, may be empty) and body.
+/// A fenced code block: its info-string tag (normalized, may be empty) and body.
 struct FencedBlock<'a> {
     tag: String,
     body: &'a str,
 }
 
+/// Normalize a fence's info string for matching: lower-cased, with any
+/// punctuation a model drifts into stripped from both ends, so `tool_call>`,
+/// `<tool_call>` and `` `json` `` read as `tool_call` and `json`.
+fn fence_tag(info: &str) -> String {
+    info.trim()
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+        .to_ascii_lowercase()
+}
+
 /// Yield every ```` ``` ````-fenced code block in `text`. Tolerant of leading
-/// indentation on the fence and of a missing closing fence at end of input.
+/// indentation on the fence, of stray punctuation around the tag, and of a
+/// missing closing fence at end of input.
 fn fenced_blocks(text: &str) -> Vec<FencedBlock<'_>> {
     let mut blocks = Vec::new();
     let bytes = text.as_bytes();
@@ -127,7 +139,7 @@ fn fenced_blocks(text: &str) -> Vec<FencedBlock<'_>> {
             .find('\n')
             .map(|i| after_fence + i)
             .unwrap_or(bytes.len());
-        let tag = text[after_fence..line_end].trim().to_ascii_lowercase();
+        let tag = fence_tag(&text[after_fence..line_end]);
         let body_start = (line_end + 1).min(bytes.len());
 
         // Body runs to the next closing fence, or to EOF if unterminated.
@@ -294,6 +306,16 @@ mod tests {
         let calls = parse_tool_calls(text);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].arguments, json!({}));
+    }
+
+    #[test]
+    fn parses_a_tag_with_stray_punctuation() {
+        let text = "```tool_call>\n{\"name\": \"a\", \"arguments\": {}}\n```\n\
+                    ```<tool_call>\n{\"name\": \"b\", \"arguments\": {}}\n```\n\
+                    ```JSON:\n{\"name\": \"c\", \"arguments\": {}}\n```";
+        let calls = parse_tool_calls(text);
+        let names: Vec<&str> = calls.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["a", "b", "c"]);
     }
 
     #[test]

@@ -353,9 +353,9 @@ a fenced JSON block:
 ````
 
 A JSON array invokes several tools in one turn. Parsing is lenient: a ` ```json `
-fence or a whole-message bare JSON object carrying both `name` and `arguments`
-also count, so smaller models still trigger tools when they drift from the exact
-format. Register tools with `agent.set_tools(vec![Box::new(MyTool)])`; with no
+fence, a tag with stray punctuation around it such as ` ```tool_call> `, or a
+whole-message bare JSON object carrying both `name` and `arguments` also count,
+so smaller models still trigger tools when they drift from the exact format. Register tools with `agent.set_tools(vec![Box::new(MyTool)])`; with no
 tools registered, parsing is skipped entirely and replies pass through verbatim.
 
 Define tools the model can call. Each tool has a name, description, JSON Schema for parameters, and an async `execute` function.

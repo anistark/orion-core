@@ -72,9 +72,10 @@ Templates advertise - and `parse_tool_calls` reads - a fenced JSON block:
 ````
 
 A JSON **array** invokes several tools in one turn. Parsing is lenient: a
-` ```json ` fence, or a whole-message bare JSON object carrying both `name` and
-`arguments`, also counts - so smaller models still trigger tools when they drift
-from the exact format. With no tools registered, parsing is skipped entirely and
+` ```json ` fence, a tag with stray punctuation around it such as ` ```tool_call> `,
+or a whole-message bare JSON object carrying both `name` and `arguments`, also
+counts - so smaller models still trigger tools when they drift from the exact
+format. With no tools registered, parsing is skipped entirely and
 replies pass through verbatim.
 
 ## Gating tool calls

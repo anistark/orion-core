@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-16
+
+### Fixed
+- **A fence tag with stray punctuation is still a tool call.** Models drift to
+  ```` ```tool_call> ```` and the like, and `parse_tool_calls` matched the tag to
+  the letter, so every call written that way was passed over: the model got no
+  result, and a consumer saw the JSON as the reply. The tag is now matched after
+  trimming punctuation from both ends, so ```` ```tool_call> ````,
+  ```` ```<tool_call> ```` and ```` ```JSON: ```` all parse.
+
 ## [0.7.1] - 2026-09-07
 
 ### Added
