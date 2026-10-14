@@ -1,10 +1,16 @@
 ---
 title: Backend
-description: Implement the LlmBackend trait to plug in any inference engine.
+description: Implement LlmBackend or ChatBackend to plug in any inference engine.
 ---
 
-Orion is backend-agnostic. You implement one trait - `LlmBackend` - for
-your inference engine, and the agent handles the orchestration above it.
+Orion is backend-agnostic. You implement one backend trait for your inference
+engine, and the agent handles the orchestration above it:
+
+- **`LlmBackend`** for a local engine (llama.cpp, MLX, ONNX), which is handed a
+  prompt with the chat template already applied.
+- **`ChatBackend`** for a hosted chat API, which is handed the system prompt and
+  the messages and applies the model's own template. See
+  [Hosted chat APIs](#hosted-chat-apis-chatbackend).
 
 ## The trait
 
@@ -60,6 +66,51 @@ The backend runs on a blocking thread, so `generate` is a plain synchronous
 function - feed the prompt, loop over sampled tokens, return. Orion owns
 all the async orchestration, so you never write `async` in your backend.
 
+## Hosted chat APIs: `ChatBackend`
+
+*Feature `chat-backend`, on by default.* A hosted API takes a list of messages
+and applies the model's own chat template, so handing it Orion's formatted
+prompt either templates twice or collapses every turn into one user message.
+Implement `ChatBackend` instead and the agent skips its own templating for it.
+Pruning, the tool loop and the event stream are unchanged.
+
+```rust
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use async_trait::async_trait;
+use orion_core::{ChatBackend, CoreResult, GenerationResult, InferenceParams, Message, TokenCallback};
+
+struct HostedApi; // your HTTP client
+
+#[async_trait]
+impl ChatBackend for HostedApi {
+    async fn chat(
+        &self,
+        system: &str,          // System prompt, tool instructions folded in
+        messages: &[Message],  // The turns that survived pruning, no system message
+        params: &InferenceParams,
+        abort: Arc<AtomicBool>, // Check between chunks to support cancellation
+        mut on_token: TokenCallback,
+    ) -> CoreResult<GenerationResult> {
+        // Send `system` + `messages` to the API, call on_token per chunk,
+        // and return the usage the response reports.
+        todo!()
+    }
+}
+
+let backend: Arc<dyn ChatBackend> = Arc::new(HostedApi);
+let reply = agent.send("Hello", backend).await?;
+```
+
+`chat` is async, since the work is I/O rather than compute. `tokenize_count`
+and `is_ready` have defaults: a four-characters-a-token estimate (a hosted API
+has no cheap tokenizer; real counts come back in the `GenerationResult`) and
+`true`.
+
+`agent.prompt`, `agent.resume` and `agent.send` all take either kind: an
+`Arc<dyn LlmBackend>` and an `Arc<dyn ChatBackend>` both convert into the
+`Backend` enum.
+
 ## GenerationResult
 
 `generate` returns the final stats for the turn:
@@ -102,15 +153,20 @@ already drives it on a blocking thread, so no extra work is needed.
 
 ### Choosing the endpoint
 
-`OpenAiConfig::with_endpoint(...)` selects how the formatted prompt is sent:
+`OpenAiHttpBackend` implements both traits, and which one you hand the agent
+decides what goes over the wire:
 
-- `OpenAiEndpoint::Chat` *(default)* posts to `/v1/chat/completions`, sending
-  Orion's formatted prompt as a single user message. The server then applies its
-  own chat template. Use this for hosted APIs and chat-only servers.
-- `OpenAiEndpoint::Completions` posts to `/v1/completions`, sending the
-  already-templated prompt **verbatim**. Prefer it against a local instruct
-  model on a completion endpoint, where double-templating would corrupt the
-  prompt.
+- **As a `ChatBackend`** (`Arc<dyn ChatBackend>`) it posts a real message list,
+  system prompt included, to `/v1/chat/completions`, and the server applies the
+  model's own template. Use this against hosted APIs and chat servers.
+  `with_endpoint` is not consulted on this path.
+- **As an `LlmBackend`** (`Arc<dyn LlmBackend>`) it sends Orion's formatted
+  prompt, chosen with `OpenAiConfig::with_endpoint(...)`.
+  `OpenAiEndpoint::Completions` posts it **verbatim** to `/v1/completions`, the
+  right choice for a local instruct model on a completion endpoint.
+  `OpenAiEndpoint::Chat` (the default) posts it to `/v1/chat/completions` as a
+  single user message, which templates twice; prefer the `ChatBackend` path
+  there.
 
 ### Distinguishing failures
 

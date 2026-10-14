@@ -77,6 +77,7 @@ export default defineConfig({
             { label: 'Context & budgets', slug: 'concepts/context' },
             { label: 'Templates', slug: 'concepts/templates' },
             { label: 'Tools', slug: 'concepts/tools' },
+            { label: 'Long-running work', slug: 'concepts/long-running' },
             { label: 'Errors', slug: 'concepts/errors' },
           ],
         },

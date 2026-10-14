@@ -38,6 +38,14 @@ pub struct ToolResult {
     pub content: String,
     /// Whether the tool failed.
     pub is_error: bool,
+    /// Whether this is a placeholder for a result still to come.
+    ///
+    /// Set on the result of a call whose tool answered with
+    /// `ToolOutput::pending` (feature `tools`). The real result arrives
+    /// later through the agent's [`Inbox`](crate::Inbox) as a second result for the
+    /// same `tool_call_id`, with this flag clear.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending: bool,
 }
 
 /// A single message in the conversation.
@@ -60,7 +68,9 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_result: Option<ToolResult>,
 
-    /// Token count for this message (populated after tokenization).
+    /// Token count for this message. The agent leaves this unset; it is for a host
+    /// that counts tokens itself. Per-generation counts arrive as
+    /// [`AgentEvent::GenerationStats`](crate::AgentEvent::GenerationStats).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_count: Option<u32>,
 
@@ -70,7 +80,7 @@ pub struct Message {
     pub pinned: bool,
 }
 
-fn is_false(value: &bool) -> bool {
+pub(crate) fn is_false(value: &bool) -> bool {
     !*value
 }
 
@@ -158,6 +168,7 @@ impl Message {
                 tool_name,
                 content,
                 is_error,
+                pending: false,
             }),
             token_count: None,
             pinned: false,

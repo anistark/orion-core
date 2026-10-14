@@ -17,18 +17,20 @@ License: MIT © Kumar Anirudha
 ├── README.md                   # Module docs and usage guide (snippets are doctested)
 ├── src/
 │   ├── lib.rs                  # Public API + re-exports; #![deny(missing_docs)]
-│   ├── agent.rs                # Agent struct, conversation state, prompt + tool loop
-│   ├── backend.rs              # LlmBackend trait (implement for your engine)
+│   ├── agent.rs                # Agent struct, conversation state, prompt/resume + tool loop, inbox reads, pending calls
+│   ├── backend.rs              # LlmBackend and ChatBackend traits, the Backend enum
+│   ├── backends.rs             # OpenAiHttpBackend (http-backend feature)
 │   ├── context.rs              # Context pipeline: prune strategies, prepare_context, plan_prune
 │   ├── error.rs                # CoreError, CoreResult (non_exhaustive)
 │   ├── events.rs               # AgentEvent enum (lifecycle + tool exec events, non_exhaustive)
+│   ├── inbox.rs                # Inbox: messages and late tool results for an agent mid-run
 │   ├── messages.rs             # Message, Role, ToolCall, ToolResult
 │   ├── template.rs             # ChatTemplate trait, per-family templates, detect_template
-│   └── tools.rs                # Tool trait, ToolSchema, ToolOutput, parse_tool_calls
+│   └── tools.rs                # Tool trait, ToolContext, ToolSchema, ToolOutput, parse_tool_calls
 ├── examples/
 │   ├── mock_backend.rs         # Runnable in-process backend (quick start)
-│   └── openai_backend.rs       # Streaming OpenAI-compatible backend (openai-example feature)
-├── tests/                      # Integration + property tests (context, prune, template, tool)
+│   └── openai_backend.rs       # Streaming OpenAI-compatible backend (http-backend feature)
+├── tests/                      # Integration + property tests (context, prune, template, tool, long-running)
 ├── benches/context_bench.rs    # Criterion benchmarks for the context pipeline
 ├── .github/workflows/ci.yml    # fmt + clippy + test on stable & MSRV 1.85
 ├── justfile                    # Task runner commands
@@ -46,10 +48,15 @@ License: MIT © Kumar Anirudha
 
 ## Development
 - Use `just` as task runner (see `justfile`)
-- Minimum Rust version: 1.85 (covers the default feature set)
-- Features: `tools` (default - `Tool` trait + execution loop + `async-trait`);
-  `openai-example` (optional `reqwest`, gates the OpenAI example). Tool-call
-  parsing and `ToolSchema` stay available with `--no-default-features`.
+- Minimum Rust version: 1.85 (covers the default feature set). `resolver = "3"`
+  makes Cargo pick dependency versions that still build on it, so check MSRV
+  with a real 1.85 toolchain first on `PATH`: `rustup run 1.85.0 cargo` alone
+  can still pick up another `rustc`.
+- Features: `tools` (default - `Tool` trait + execution loop + `async-trait`,
+  and tokio's `macros` for `ToolContext::run_child`); `chat-backend` (default -
+  the `ChatBackend` trait, `async-trait`); `http-backend` (optional `reqwest`,
+  `OpenAiHttpBackend`, gates the OpenAI example). Tool-call parsing and
+  `ToolSchema` stay available with `--no-default-features`.
 - Clean code, proper naming, minimal comments, proper docstrings
 - Avoid over-commenting. Add only useful comments like docstrings, TODOs and NOTEs.
 - Latest stable dependency versions

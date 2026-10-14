@@ -32,8 +32,8 @@ jobs:
       matrix:
         # Test on stable (all features) and the crate's declared MSRV
         # (rust-version in Cargo.toml). The MSRV guarantee covers the default
-        # feature set only - optional example features (e.g. the reqwest-backed
-        # `openai-example`) may carry a higher floor via their own deps.
+        # feature set only - optional features (e.g. the reqwest-backed
+        # `http-backend`) may carry a higher floor via their own deps.
         include:
           - rust: "stable"
             features: "--all-features"

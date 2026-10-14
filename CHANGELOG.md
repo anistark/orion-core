@@ -6,6 +6,70 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-14
+
+### Added
+- **A tool can hand back a result later.** `ToolOutput::pending(content)` records
+  a placeholder as the call's result, marked `ToolResult::pending`, so the model
+  knows the work is under way and the conversation stays well formed. The call is
+  listed by `Agent::pending_calls` until its result is delivered. Pending calls
+  are worked out from the messages, so they survive a save and restore.
+- **`Inbox`: a way into an agent while it runs.** `Agent::inbox` hands out a
+  cloneable handle. `push` queues a user message, and `resolve` and `reject`
+  deliver a pending call's result, which fires `AgentEvent::ToolResolved`. The
+  agent reads the inbox at the start of a run, before every model call after the
+  first, and when the model gives its final answer, so anything that lands while
+  it writes is answered in the same run.
+- **`Agent::resume` carries a conversation on without new user text.** Use it
+  after a result lands between runs, after a pause, or to pick up a conversation
+  restored with `replace_messages`. A tool call that a run left without a result,
+  because the process stopped mid-round, is marked failed with a `Warning` and
+  never run again. `Agent::needs_reply` says whether there is anything to resume.
+- **`AgentConfig::pause_on_pending`.** With it set, a turn that leaves calls
+  pending ends the run with `AgentEvent::Paused` rather than letting the model
+  answer around them. It is off by default.
+- **`ToolContext`, handed to every tool call.** It carries the call's id and
+  tool name, the run's stop flag (`is_aborted`, `abort_flag`), `update` for
+  progress and `forward` for passing events into the run.
+- **`ToolContext::run_child` runs a child agent inside a tool call.** The child's
+  events stream live into the parent's as `AgentEvent::Nested` under the call
+  that started it, stopping the parent stops the child, and the call answers
+  with the child's reply.
+- `ToolOutput::new`, `with_details` and a `Default` impl, so building an output
+  no longer means spelling out every field.
+
+### Changed
+- **Breaking: `Tool::execute` takes `(args, ctx: &ToolContext)`.** It used to
+  take `(tool_call_id, args, on_update)`. The call id is `ctx.call_id()`, and
+  `on_update(partial)` is `ctx.update(partial)`. `ToolUpdateCallback` is gone.
+- **Breaking: `ToolOutput`, `ToolResult` and `AgentConfig` each gain a field**
+  (`pending`, `pending`, `pause_on_pending`). Code that builds one with a struct
+  literal needs the new field, `..Default::default()`, or a constructor.
+  Serialized messages from earlier releases still load, since a missing
+  `pending` reads as false.
+- **`AgentEnd.messages` reports what a failed run left in the conversation.** It
+  used to be empty whenever generation failed, even when earlier turns of the
+  same run stayed in the conversation. It now lists every message the run added
+  that is still there, other than the prompt's own user message, which is
+  removed when the first generation fails.
+- The `tools` feature now enables tokio's `macros` feature.
+
+### Documented
+- **`ChatBackend`, `Agent::send` and the two paths through `OpenAiHttpBackend`**
+  are covered in the README and the guide. Both said there was one trait to
+  implement, and described the chat endpoint only as a prompt sent in a single
+  user message, which has not been the whole story since 0.7.1.
+- Event sequences now show `TurnStart` after the user message and include
+  `GenerationStats`, as the agent emits them. `MessageStart` is documented as
+  firing for user and tool-result messages only.
+- `Message::token_count` is documented as left unset by the agent, and the Quick
+  Start reads its token count from `GenerationStats`, since it always printed 0.
+- The templates guide passes an `Arc`, which `with_template` and `set_template`
+  take, and the snippet is now a doctest. `AGENTS.md` and `CONTRIBUTING.md` name
+  the real features in place of a nonexistent `openai-example`.
+- `cargo doc --no-default-features` builds again: two links to `ChatBackend`
+  from `PreparedContext` resolved only with the feature on.
+
 ## [0.7.2] - 2026-09-16
 
 ### Fixed

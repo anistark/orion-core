@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use orion_core::{
     Agent, AgentConfig, AgentEvent, CoreResult, GenerationResult, InferenceParams, LlmBackend,
-    Role, TokenCallback, Tool, ToolOutput, ToolUpdateCallback,
+    Role, TokenCallback, Tool, ToolContext, ToolOutput,
 };
 use tokio::sync::mpsc;
 
@@ -82,18 +82,10 @@ impl Tool for AddTool {
             "properties": {"a": {"type": "number"}, "b": {"type": "number"}}
         })
     }
-    async fn execute(
-        &self,
-        _tool_call_id: &str,
-        args: serde_json::Value,
-        _on_update: Option<ToolUpdateCallback>,
-    ) -> CoreResult<ToolOutput> {
+    async fn execute(&self, args: serde_json::Value, _ctx: &ToolContext) -> CoreResult<ToolOutput> {
         let a = args.get("a").and_then(|v| v.as_i64()).unwrap_or(0);
         let b = args.get("b").and_then(|v| v.as_i64()).unwrap_or(0);
-        Ok(ToolOutput {
-            content: (a + b).to_string(),
-            details: serde_json::Value::Null,
-        })
+        Ok(ToolOutput::new((a + b).to_string()))
     }
 }
 

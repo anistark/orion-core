@@ -24,14 +24,15 @@ DeepSeek (LLM chat), Command-R / Command-R+, Alpaca, and Vicuna.
   - set or swap the template at runtime.
 
 ```rust
+use std::sync::Arc;
 use orion_core::{Agent, AgentConfig, Llama3Template, template_from_name};
 
 // Construct with an explicit template…
-let mut agent = Agent::with_template(AgentConfig::default(), Box::new(Llama3Template));
+let mut agent = Agent::with_template(AgentConfig::default(), Arc::new(Llama3Template));
 
 // …or swap it later, e.g. from a user-supplied override name.
 if let Some(template) = template_from_name("mistral") {
-    agent.set_template(template);
+    agent.set_template(template.into()); // Box<dyn ChatTemplate> into Arc
 }
 ```
 

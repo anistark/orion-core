@@ -33,15 +33,18 @@ Where an error shows up depends on how you call the agent. This matters more
 than the variants themselves:
 
 - **`agent.prompt(...)` / `prompt_stream(...)`** returns `Err` **only** for an
-  invalid request - today that's an empty prompt (`CoreError::Agent`). Anything
+  invalid request - today that's an empty prompt (`CoreError::Agent`).
+  `agent.resume(...)` likewise returns `Err(CoreError::Agent)`, with no events,
+  only when there is nothing to resume. Anything
   that goes wrong *during* the run (backend not ready, context overflow, an
   endpoint failure) is delivered as an [`AgentEvent::Error`](../events/) on the
   stream, and the call still returns `Ok(())` after emitting `AgentEnd`. So a UI
   driving `prompt` watches the event stream for `Error`, not the return value.
 - **Cancellation** via `agent.abort()` is *not* surfaced as an error at all: the
   run records an empty assistant turn, emits `AgentEnd`, and returns `Ok(())`.
-  You only ever see `CoreError::Aborted` when you call a backend's `generate`
-  directly.
+  You only see `CoreError::Aborted` when you call a backend's `generate`
+  directly, or from `ToolContext::run_child` inside a tool when the parent run
+  was stopped.
 - **Tool failures and denials never stop the run.** A tool that errors, or a
   call an [approval hook](../tools/#gating-tool-calls) denies, is appended to
   the conversation as an *error tool result* (with a `ToolExecEnd`/`ToolDenied`
@@ -131,9 +134,10 @@ How to fix:
 - Unpin messages with `agent.set_pinned(id, false)` if pins are the cause.
 
 :::note
-During a `prompt()` run this arrives as an `AgentEvent::Error`, not a returned
-`Err`. The agent drops the just-added user message so a retry with a smaller
-budget starts clean.
+During a run this arrives as an `AgentEvent::Error`, not a returned `Err`. When
+the first generation of a `prompt` fails, the agent drops the just-added user
+message so a retry with a smaller budget starts clean. A later turn, or a
+`resume`, leaves the conversation as it is.
 :::
 
 ### `CoreError::Tool`
@@ -168,6 +172,12 @@ Occurs when:
 
 - The prompt is empty or whitespace-only - `"Empty message"`, returned straight
   from `prompt`.
+- `resume` was called with an empty inbox on a conversation that is not
+  waiting on a reply - `"Nothing to resume: …"`. Check `agent.needs_reply()`
+  first.
+- `send` saw the run report an `Error` event, and returns its text as `Err`.
+- A child agent run with `ToolContext::run_child` failed, or gave no reply -
+  `"The child agent produced no reply"`.
 - The blocking inference task panicked - `"Inference task failed: …"`. This
   points to a bug in the backend's `generate` or tokenizer, not in your call.
 
@@ -194,6 +204,8 @@ What to expect:
   cleanly with an empty assistant turn and an `AgentEnd` event.
 - Calling `generate` directly returns `Err(CoreError::Aborted)`. Treat it as
   "stopped on request" and move on; there's nothing to fix.
+- Inside a tool, `ToolContext::run_child` returns `Err(CoreError::Aborted)` when
+  the parent run was stopped, which also stops the child.
 
 ## Serializable
 

@@ -13,16 +13,16 @@ supply the sender to `agent.prompt(text, backend, tx)` or let
 
 ![A turn emits AgentStart, then MessageDelta events as the N tokens stream in, a ContextBudget reading with used and max tokens, ToolExecStart/End when a tool runs, and finally AgentEnd.](../../../assets/diagrams/orion-core-events.png)
 
-*The shape of a turn: about a dozen typed events your UI subscribes to, so it
+*The shape of a turn: a small set of typed events your UI subscribes to, so it
 never has to reach inside the harness to know what's happening.*
 
 ## A simple prompt
 
 ```text
 AgentStart
-TurnStart
 MessageStart    { user message }
 MessageEnd      { user message }
+TurnStart
 ContextBudget   { used: 120, max: 4096, included: 5, pruned: 0 }
 MessageDelta    { delta: "Hello", tokens: 1, tps: 45.2 }
 MessageDelta    { delta: " there", tokens: 2, tps: 46.1 }
@@ -66,22 +66,29 @@ takes the place of the `ToolExecStart` / `ToolExecUpdate` / `ToolExecEnd` trio -
 the tool never runs, but a tool-result message (marked `is_error`) is still
 appended so the model sees the refusal and the loop continues.
 
+Pending results, the inbox and child agents add three more events: `ToolResolved`,
+`Paused` and `Nested`. [Long-running work](../long-running/#event-sequences) shows
+where they fall in a run.
+
 ## All event types
 
 | Event | When | Key data |
 |-------|------|----------|
 | `AgentStart` | Processing begins | - |
-| `AgentEnd` | All done | All new messages |
+| `AgentEnd` | All done | Every message the run added, other than the prompt's own |
 | `TurnStart` | New LLM call begins | - |
 | `TurnEnd` | LLM call + tools done | Assistant message, tool results |
-| `MessageStart` | Any message added | Full message |
+| `MessageStart` | A user or tool-result message added (an assistant message streams as `MessageDelta` instead) | Full message |
 | `MessageDelta` | Each streamed token | `delta`, `tokens_generated`, `tokens_per_sec` |
 | `GenerationStats` | Each completed LLM generation | `tokens_generated`, `prompt_tokens`, timing |
 | `MessageEnd` | Message complete | Full message |
 | `ToolExecStart` | Tool begins running | Tool name, args |
 | `ToolExecUpdate` | Tool streams progress | Partial output |
-| `ToolExecEnd` | Tool finished | Result, `is_error` |
+| `ToolExecEnd` | Tool finished | Result, `is_error`, `pending` |
 | `ToolDenied` | Approval hook blocked a call | Tool name, `reason` |
+| `ToolResolved` | A pending call's result arrived through the inbox | Result |
+| `Paused` | Run ended to wait on pending calls | The pending calls |
+| `Nested` | A child agent's event, from `ToolContext::run_child` | Call id, the child's event |
 | `ContextBudget` | After context prep | Tokens used/max, messages included/pruned |
 | `Warning` | Non-fatal issue | Warning text |
 | `Error` | Fatal error | Error text |
@@ -89,8 +96,8 @@ appended so the model sees the refusal and the loop continues.
 ## Metering usage with `GenerationStats`
 
 Exactly one `GenerationStats` is emitted per completed LLM generation within a
-`prompt()` call, always before that turn's `MessageEnd` and before the closing
-`AgentEnd`. When tools fire, a single `prompt()` spans several generations, so
+run (`prompt()` or `resume()`), always before that turn's `MessageEnd` and before
+the closing `AgentEnd`. When tools fire, a single run spans several generations, so
 **summing** the `tokens_generated` / `prompt_tokens` across every
 `GenerationStats` in a run yields the exact per-run totals - no gaps, no double
 counting. This contract is pinned by tests, so cost dashboards and quotas can

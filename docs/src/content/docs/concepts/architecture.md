@@ -19,7 +19,8 @@ the orchestration that turns a prompt into a streamed, tool-augmented answer.
 │  Your application (CLI, server, desktop app, …)   │
 ├──────────────────────────────────────────────────┤
 │  Agent                                            │
-│  ├── prompt("Hello")                              │
+│  ├── prompt("Hello") / resume()                   │
+│  ├── Inbox (messages + late tool results)         │
 │  ├── Conversation state (Vec<Message>)            │
 │  ├── System prompt                                │
 │  ├── Registered tools                             │
@@ -41,23 +42,31 @@ the orchestration that turns a prompt into a streamed, tool-augmented answer.
 ![The Orion stack from top to bottom: your app, the agent, the context pipeline, the LlmBackend trait, and your engine.](../../../assets/diagrams/orion-core-stack.png)
 
 *You write the top (your app) and the bottom (your engine). Orion is everything
-in between - and the only seam that matters is the `LlmBackend` trait.*
+in between - and the only seam that matters is the backend trait: `LlmBackend`,
+or `ChatBackend` for a hosted chat API.*
 
 ## The loop
 
 A single call to `Agent::prompt` drives the whole cycle:
 
-1. **Append** the user message to the conversation.
+1. **Append** the user message to the conversation, after settling any tool
+   call a saved conversation left without a result and reading whatever is
+   waiting in the [inbox](../long-running/#the-inbox).
 2. **Prepare context** - the pipeline prunes old messages to fit the token
    budget and formats the survivors into a prompt string using the active chat
    template (injecting tool schemas if any tools are registered).
 3. **Generate** - the backend streams tokens, which surface as `MessageDelta`
-   events in real time.
+   events in real time. The inbox is read again before every later
+   generation, so a message pushed mid-run is seen on the next step.
 4. **Tool loop** - if the model emitted tool calls, the agent runs the matching
    tools, appends their results, and loops back to step 2. This repeats until
-   the model returns a tool-free answer (bounded by
-   `AgentConfig::max_tool_iterations`, default 8).
+   the model returns a tool-free answer with nothing new in the inbox, the
+   `AgentConfig::max_tool_iterations` cap (default 8) is reached, or the run
+   pauses on pending tool calls (`AgentConfig::pause_on_pending`).
 5. **Finish** - the final assistant message lands and the call returns.
+
+`Agent::resume` runs the same loop from step 2 without a new user message. See
+[Long-running work](../long-running/).
 
 ## Events flow upward
 

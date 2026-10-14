@@ -15,7 +15,7 @@ Or in `Cargo.toml`:
 
 ```toml
 [dependencies]
-orion-core = "0.2"
+orion-core = "0.8"
 ```
 
 The minimum supported Rust version is **1.85**.
@@ -49,8 +49,8 @@ let consumer = tokio::spawn(async move {
     while let Some(event) = rx.recv().await {
         match event {
             AgentEvent::MessageDelta { delta, .. } => print!("{delta}"),
-            AgentEvent::MessageEnd { message } => {
-                println!("\n\nDone: {} tokens", message.token_count.unwrap_or(0));
+            AgentEvent::GenerationStats { tokens_generated, .. } => {
+                println!("\n\nDone: {tokens_generated} tokens");
             }
             AgentEvent::ContextBudget { used_tokens, max_tokens, .. } => {
                 println!("Context: {used_tokens}/{max_tokens} tokens");
@@ -102,16 +102,21 @@ See [Examples](../../reference/examples/) for what each one demonstrates.
 ## Feature flags
 
 The `tools` feature is **on by default** and pulls in
-[`async-trait`](https://crates.io/crates/async-trait). Minimal consumers that
+[`async-trait`](https://crates.io/crates/async-trait) and tokio's `macros`
+feature. Minimal consumers that
 only need plain chat can drop it:
 
 ```toml
-orion-core = { version = "0.7", default-features = false }
+orion-core = { version = "0.8", default-features = false }
 ```
 
 Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`, `ToolSchema`) stays
 available either way - only the `Tool` trait and the execution loop require the
 feature. See [Tools](../../concepts/tools/) for details.
+
+`default-features = false` also drops the default `chat-backend` feature, and
+with it [`ChatBackend`](../../concepts/backend/#hosted-chat-apis-chatbackend). Add
+`features = ["chat-backend"]` back if you drive a hosted chat API.
 
 The `http-backend` feature is **off by default**. Enable it for the supported
 [`OpenAiHttpBackend`](../../concepts/backend/#ready-made-the-openai-compatible-http-backend),
@@ -119,11 +124,11 @@ a streaming client for any OpenAI-compatible server; it pulls in a blocking HTTP
 client, so it stays opt-in:
 
 ```toml
-orion-core = { version = "0.7", features = ["http-backend"] }
+orion-core = { version = "0.8", features = ["http-backend"] }
 ```
 
 ## Next steps
 
 - [Architecture](../../concepts/architecture/) - how the pieces fit together.
-- [Backend](../../concepts/backend/) - the one trait you implement.
+- [Backend](../../concepts/backend/) - the one trait you implement (`LlmBackend` or `ChatBackend`).
 - [Tools](../../concepts/tools/) - give the model abilities.

@@ -10,13 +10,17 @@
 //! User prompt
 //!   → Agent.prompt()
 //!     → Context pipeline (prune pairs + template format)
-//!       → LlmBackend.generate() (streaming tokens)
+//!       → LlmBackend.generate() / ChatBackend.chat() (streaming tokens)
 //!         → Tool execution loop (parse calls → run tools → feed results back)
 //!           → AgentEvent stream → UI
+//!
+//! Agent.inbox()  → messages and late tool results, read before every generation
+//! Agent.resume() → the same loop again, without new user text
 //! ```
 //!
-//! The crate is backend-agnostic. Implement [`backend::LlmBackend`]
-//! for your inference engine and the agent handles the rest.
+//! The crate is backend-agnostic. Implement [`backend::LlmBackend`] for a local
+//! engine fed a formatted prompt, or `ChatBackend` (feature `chat-backend`, on by
+//! default) for a hosted chat API fed messages, and the agent handles the rest.
 //!
 //! # Example
 //!
@@ -98,6 +102,8 @@ pub mod context;
 pub mod error;
 /// The [`AgentEvent`] stream emitted while the agent runs.
 pub mod events;
+/// The [`Inbox`]: messages and late tool results for an agent, from outside its run.
+pub mod inbox;
 /// Conversation data types: [`Message`], [`Role`], and tool call/result records.
 pub mod messages;
 /// Chat prompt templates for the supported model families.
@@ -118,6 +124,7 @@ pub use backends::{OpenAiConfig, OpenAiEndpoint, OpenAiHttpBackend};
 pub use context::{plan_prune, ContextConfig, PreparedContext, PrunePlan, PruneStrategy};
 pub use error::{CoreError, CoreResult};
 pub use events::AgentEvent;
+pub use inbox::Inbox;
 pub use messages::{Message, Role, ToolCall, ToolResult};
 pub use template::{
     detect_template, template_from_name, AlpacaTemplate, ChatMLTemplate, ChatTemplate,
@@ -126,4 +133,4 @@ pub use template::{
 };
 pub use tools::{parse_tool_calls, ParsedToolCall, ToolSchema};
 #[cfg(feature = "tools")]
-pub use tools::{Tool, ToolOutput, ToolUpdateCallback};
+pub use tools::{Tool, ToolContext, ToolOutput};

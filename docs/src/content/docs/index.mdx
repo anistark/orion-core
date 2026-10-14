@@ -15,8 +15,9 @@ model runtime (llama.cpp, MLX, cloud APIs, anything).
 
 Orion handles the conversation loop so you don't have to: context
 management, token budgets, streaming events, chat formatting, and an automatic
-tool-execution loop. You implement one trait - `LlmBackend` - for your
-inference engine, and Orion handles everything above it.
+tool-execution loop. You implement one backend trait for your inference
+engine - `LlmBackend` for a local engine, `ChatBackend` for a hosted chat API -
+and Orion handles everything above it.
 
 ## How it works
 
@@ -29,6 +30,9 @@ User sends "Hello"
           → AgentEvent stream (your UI subscribes here)
             → If the model called tools: run them, append results, loop back
               → Done (model returns a tool-free answer)
+
+Agent.inbox() reaches the agent mid-run (read before every model call),
+and Agent.resume() carries a conversation on without new user text.
 ```
 
 <CardGrid>
@@ -39,13 +43,18 @@ User sends "Hello"
   />
   <LinkCard
     title="Implement a backend"
-    description="The one trait you write: generate, tokenize_count, is_ready."
+    description="The one trait you write: LlmBackend for a local engine, ChatBackend for a hosted API."
     href={`${base}concepts/backend/`}
   />
   <LinkCard
     title="Give the model tools"
     description="Define tools and let the agent run the call → execute → reply loop."
     href={`${base}concepts/tools/`}
+  />
+  <LinkCard
+    title="Long-running work"
+    description="Pending tool results, the inbox, resuming after a restart, and child agents."
+    href={`${base}concepts/long-running/`}
   />
   <LinkCard
     title="Context & budgets"
@@ -58,8 +67,9 @@ User sends "Hello"
 
 <CardGrid>
   <Card title="One trait to implement" icon="seti:rust">
-    Plug in any engine by implementing `LlmBackend`. It runs on a blocking
-    thread - no async required. Orion owns the async orchestration.
+    Plug in a local engine by implementing `LlmBackend`, which runs on a
+    blocking thread with no async required, or a hosted chat API with
+    `ChatBackend`. Orion owns the async orchestration.
   </Card>
   <Card title="Streaming events" icon="random">
     Subscribe to an `AgentEvent` stream for tokens, tool execution, and
@@ -68,6 +78,11 @@ User sends "Hello"
   <Card title="Automatic tool loop" icon="puzzle">
     The agent parses tool calls, runs your tools, feeds results back, and
     loops until the model returns a final answer.
+  </Card>
+  <Card title="Work that outlasts a turn" icon="rocket">
+    Tools can hand back a pending result and deliver it later through the
+    inbox, a run can be resumed after a restart, and a tool can run a child
+    agent whose events stream into the parent's.
   </Card>
   <Card title="Context management" icon="document">
     Prune to a token budget with a sliding window or summarization, pin
