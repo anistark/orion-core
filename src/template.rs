@@ -737,7 +737,22 @@ impl ChatTemplate for Llama2Template {
 /// Resolve a template by name (used by the manual override dropdown).
 ///
 /// Returns `None` for names without an implementation so the caller can fall
-/// back to GGUF auto-detection or ChatML.
+/// back to GGUF auto-detection or ChatML. The agent holds its template as an
+/// `Arc`, and the `Box` converts into one:
+///
+/// ```
+/// use std::sync::Arc;
+/// use orion_core::{Agent, AgentConfig, Llama3Template, template_from_name};
+///
+/// // Construct with an explicit template…
+/// let mut agent = Agent::with_template(AgentConfig::default(), Arc::new(Llama3Template));
+///
+/// // …or swap it later, e.g. from a user-supplied override name.
+/// if let Some(template) = template_from_name("mistral") {
+///     agent.set_template(template.into()); // Box<dyn ChatTemplate> into Arc
+/// }
+/// # assert_eq!(agent.template().name(), "mistral");
+/// ```
 pub fn template_from_name(name: &str) -> Option<Box<dyn ChatTemplate>> {
     match name.trim().to_ascii_lowercase().as_str() {
         "chatml" => Some(Box::new(ChatMLTemplate)),

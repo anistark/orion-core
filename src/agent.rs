@@ -10,13 +10,14 @@ use crate::backend::{Backend, GenerationResult, InferenceParams, TokenCallback};
 use crate::context::{plan_prune, prepare_context, ContextConfig, PreparedContext, PruneStrategy};
 use crate::error::{CoreError, CoreResult};
 use crate::events::AgentEvent;
+use crate::inbox::{Inbound, Inbox};
 use crate::messages::{Message, Role, ToolCall};
 use crate::template::{ChatMLTemplate, ChatTemplate};
 use crate::tools::{parse_tool_calls, ToolSchema};
 #[cfg(feature = "tools")]
 use crate::{
     messages::ToolResult,
-    tools::{Tool, ToolOutput, ToolUpdateCallback},
+    tools::{Tool, ToolContext, ToolOutput},
 };
 
 /// Prefix marking an agent-generated conversation summary (see the `Summarize`
@@ -29,6 +30,11 @@ const SUMMARY_MAX_TOKENS: u32 = 320;
 /// The frame a summarization pass runs under.
 const SUMMARY_SYSTEM: &str = "You summarize conversations faithfully and concisely.";
 
+/// The result recorded for a call the run never finished, found when a saved
+/// conversation is picked up again.
+const INTERRUPTED: &str = "The run stopped before this call finished, so it has no result. \
+     It may or may not have taken effect.";
+
 /// Agent configuration.
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
@@ -38,10 +44,19 @@ pub struct AgentConfig {
     pub inference_params: InferenceParams,
     /// Context-window management settings.
     pub context_config: ContextConfig,
-    /// Maximum LLM↔tool round-trips in a single `prompt()` before the agent
+    /// Maximum LLM↔tool round-trips in one run (`prompt` or `resume`) before the agent
     /// stops and emits a warning. Guards against tool loops that never produce
     /// a final answer.
     pub max_tool_iterations: usize,
+    /// End the run when a turn leaves tool calls pending, rather than letting the model
+    /// answer around them.
+    ///
+    /// Off by default: the model reads each pending call's placeholder and carries on,
+    /// usually telling the user the work is under way. On, the run emits
+    /// [`AgentEvent::Paused`] and ends after such a turn, unless the inbox already holds
+    /// something to go on. Deliver the results through [`Agent::inbox`] and call
+    /// [`Agent::resume`] to continue.
+    pub pause_on_pending: bool,
 }
 
 impl Default for AgentConfig {
@@ -51,6 +66,7 @@ impl Default for AgentConfig {
             inference_params: InferenceParams::default(),
             context_config: ContextConfig::default(),
             max_tool_iterations: 8,
+            pause_on_pending: false,
         }
     }
 }
@@ -152,6 +168,9 @@ pub struct Agent {
     approval_hook: Option<Arc<dyn ApprovalHook>>,
     template: Arc<dyn ChatTemplate>,
     abort: Arc<AtomicBool>,
+    /// The abort flag is a parent's, lent for a child run, and is not this agent's to clear.
+    abort_lent: bool,
+    inbox: Inbox,
     msg_counter: u64,
 }
 
@@ -179,6 +198,8 @@ impl Agent {
             approval_hook: None,
             template,
             abort: Arc::new(AtomicBool::new(false)),
+            abort_lent: false,
+            inbox: Inbox::default(),
             msg_counter: 0,
         }
     }
@@ -302,15 +323,92 @@ impl Agent {
         self.messages = messages;
     }
 
-    /// Request cancellation of an in-flight generation.
+    /// Request cancellation of an in-flight run.
+    ///
+    /// The backend stops generating, tools see it through `ToolContext::is_aborted`,
+    /// and a child agent started with `ToolContext::run_child` stops too. A tool round that has started runs its remaining calls before the loop
+    /// stops.
     pub fn abort(&self) {
         log::debug!("Agent abort requested");
         self.abort.store(true, Ordering::Relaxed);
     }
 
-    /// Clone of the shared abort flag, for wiring cancellation into a backend.
+    /// Clone of the shared abort flag, for wiring cancellation into a backend or
+    /// into work a tool starts. Storing `true` in it is the same as [`abort`](Self::abort).
     pub fn abort_flag(&self) -> Arc<AtomicBool> {
         self.abort.clone()
+    }
+
+    /// A handle for reaching this agent from outside its run: messages pushed and
+    /// results delivered while it works. See [`Inbox`].
+    pub fn inbox(&self) -> Inbox {
+        self.inbox.clone()
+    }
+
+    /// The tool calls still waiting on a result, oldest first.
+    ///
+    /// A call is pending from the moment its tool returns a pending output until its
+    /// result is read from the inbox. It is worked out from the conversation, so it
+    /// survives a save and a [`replace_messages`](Self::replace_messages): after a
+    /// restart, this is the list of results the host still owes.
+    pub fn pending_calls(&self) -> Vec<ToolCall> {
+        let mut waiting: Vec<&str> = Vec::new();
+        for result in self.messages.iter().filter_map(|m| m.tool_result.as_ref()) {
+            if result.pending {
+                waiting.push(&result.tool_call_id);
+            } else {
+                waiting.retain(|id| *id != result.tool_call_id);
+            }
+        }
+
+        waiting
+            .into_iter()
+            .filter_map(|id| {
+                self.messages
+                    .iter()
+                    .flat_map(|m| &m.tool_calls)
+                    .find(|call| call.id == id)
+                    .cloned()
+            })
+            .collect()
+    }
+
+    /// Whether the conversation ends on something the model has not answered yet: a
+    /// user message, a tool result, or a tool call with no result.
+    ///
+    /// True after a crash mid-run, or after a pause. [`resume`](Self::resume) answers it.
+    pub fn needs_reply(&self) -> bool {
+        let Some(last) = self.messages.iter().rev().find(|m| m.role != Role::System) else {
+            return false;
+        };
+        match last.role {
+            Role::User | Role::ToolResult => true,
+            Role::Assistant | Role::ToolCall => !last.tool_calls.is_empty(),
+            Role::System => false,
+        }
+    }
+
+    /// Run on this agent with `flag` as its abort flag, until [`restore_abort`] hands
+    /// back the one it had. A lent flag is not cleared when a run starts.
+    ///
+    /// [`restore_abort`]: Self::restore_abort
+    #[cfg(feature = "tools")]
+    pub(crate) fn lend_abort(&mut self, flag: Arc<AtomicBool>) -> Arc<AtomicBool> {
+        self.abort_lent = true;
+        std::mem::replace(&mut self.abort, flag)
+    }
+
+    /// Hand back the abort flag [`lend_abort`](Self::lend_abort) replaced.
+    #[cfg(feature = "tools")]
+    pub(crate) fn restore_abort(&mut self, own: Arc<AtomicBool>) {
+        self.abort = own;
+        self.abort_lent = false;
+    }
+
+    fn reset_abort(&self) {
+        if !self.abort_lent {
+            self.abort.store(false, Ordering::Relaxed);
+        }
     }
 
     fn next_id(&mut self) -> String {
@@ -329,6 +427,136 @@ impl Agent {
         Vec::new()
     }
 
+    /// Add a message to the conversation and to the run's output, and announce it.
+    fn record(
+        &mut self,
+        message: Message,
+        new_messages: &mut Vec<Message>,
+        tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) {
+        self.messages.push(message.clone());
+        new_messages.push(message.clone());
+        tx.send(AgentEvent::MessageStart {
+            message: message.clone(),
+        })
+        .ok();
+        tx.send(AgentEvent::MessageEnd { message }).ok();
+    }
+
+    /// Give every call of the last tool turn that has no result an error one, so a
+    /// conversation saved mid-run is well formed again. Such a call is never re-run:
+    /// it may have taken effect before the run stopped.
+    fn settle_interrupted(
+        &mut self,
+        new_messages: &mut Vec<Message>,
+        tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) {
+        let Some(at) = self.messages.iter().rposition(|m| !m.tool_calls.is_empty()) else {
+            return;
+        };
+        let answered: Vec<&str> = self.messages[at + 1..]
+            .iter()
+            .filter_map(|m| m.tool_result.as_ref())
+            .map(|r| r.tool_call_id.as_str())
+            .collect();
+        let unanswered: Vec<ToolCall> = self.messages[at]
+            .tool_calls
+            .iter()
+            .filter(|call| !answered.contains(&call.id.as_str()))
+            .cloned()
+            .collect();
+        if unanswered.is_empty() {
+            return;
+        }
+
+        for call in &unanswered {
+            let result =
+                Message::tool_result(self.next_id(), &call.id, &call.name, INTERRUPTED, true);
+            self.record(result, new_messages, tx);
+        }
+        log::warn!(
+            "Agent: settled {} interrupted tool call(s)",
+            unanswered.len()
+        );
+        tx.send(AgentEvent::Warning {
+            message: format!(
+                "{} tool call(s) were interrupted before they finished and were marked failed",
+                unanswered.len()
+            ),
+        })
+        .ok();
+    }
+
+    /// Read everything waiting in the inbox into the conversation. Answers how many
+    /// messages it added.
+    fn read_inbox(
+        &mut self,
+        new_messages: &mut Vec<Message>,
+        tx: &mpsc::UnboundedSender<AgentEvent>,
+    ) -> usize {
+        let mut added = 0;
+        for item in self.inbox.take() {
+            match item {
+                Inbound::Message(text) => {
+                    let text = text.trim();
+                    if text.is_empty() {
+                        continue;
+                    }
+                    let message = Message::user(self.next_id(), text);
+                    self.record(message, new_messages, tx);
+                    added += 1;
+                }
+                Inbound::Result {
+                    tool_call_id,
+                    content,
+                    is_error,
+                } => {
+                    let Some(call) = self
+                        .pending_calls()
+                        .into_iter()
+                        .find(|call| call.id == tool_call_id)
+                    else {
+                        log::warn!(
+                            "Agent: dropped a result for {tool_call_id}, which is not pending"
+                        );
+                        tx.send(AgentEvent::Warning {
+                            message: format!(
+                                "Dropped a result for tool call {tool_call_id}, which is not waiting on one"
+                            ),
+                        })
+                        .ok();
+                        continue;
+                    };
+
+                    let heading = if is_error {
+                        format!("[The earlier {} call failed]", call.name)
+                    } else {
+                        format!("[Result of the earlier {} call]", call.name)
+                    };
+                    let mut message = Message::tool_result(
+                        self.next_id(),
+                        &call.id,
+                        &call.name,
+                        content,
+                        is_error,
+                    );
+                    message.content = format!("{heading}\n{}", message.content);
+                    if let Some(result) = &message.tool_result {
+                        tx.send(AgentEvent::ToolResolved {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            result: result.clone(),
+                        })
+                        .ok();
+                    }
+                    self.record(message, new_messages, tx);
+                    added += 1;
+                }
+            }
+        }
+        added
+    }
+
     /// Run a prompt through the agent loop.
     ///
     /// Accepts an event sender so the caller can consume events
@@ -336,14 +564,18 @@ impl Agent {
     /// real-time token streaming to the UI.
     ///
     /// Flow:
-    /// 1. Adds the user message.
-    /// 2. Generates an assistant response (prune + template + LLM call),
+    /// 1. Settles any tool call a saved conversation left without a result, and reads
+    ///    whatever is waiting in the [`inbox`](Self::inbox).
+    /// 2. Adds the user message.
+    /// 3. Generates an assistant response (prune + template + LLM call),
     ///    streaming tokens via `tx`.
-    /// 3. If tools are registered and the response contains tool calls, runs
+    /// 4. If tools are registered and the response contains tool calls, runs
     ///    each tool, appends a tool-result message, and loops back to the LLM.
-    /// 4. Repeats until the model returns a tool-free answer or the
-    ///    `max_tool_iterations` guard trips.
-    /// 5. Emits lifecycle events for every step and updates conversation state.
+    ///    The inbox is read again before each of those generations.
+    /// 5. Repeats until the model returns a tool-free answer with nothing new in
+    ///    the inbox, the `max_tool_iterations` guard trips, or the run pauses on
+    ///    pending calls (see [`AgentConfig::pause_on_pending`]).
+    /// 6. Emits lifecycle events for every step and updates conversation state.
     pub async fn prompt(
         &mut self,
         text: impl Into<String>,
@@ -356,34 +588,94 @@ impl Agent {
             return Err(CoreError::Agent("Empty message".into()));
         }
 
-        self.abort.store(false, Ordering::Relaxed);
+        self.reset_abort();
+        tx.send(AgentEvent::AgentStart).ok();
 
+        let mut new_messages: Vec<Message> = Vec::new();
+        self.settle_interrupted(&mut new_messages, &tx);
+        self.read_inbox(&mut new_messages, &tx);
+
+        // The prompt's own message is the caller's, so it is announced but not
+        // reported back in `AgentEnd`.
         let user_msg = Message::user(self.next_id(), &text);
         self.messages.push(user_msg.clone());
-
-        tx.send(AgentEvent::AgentStart).ok();
         tx.send(AgentEvent::MessageStart {
             message: user_msg.clone(),
         })
         .ok();
         tx.send(AgentEvent::MessageEnd { message: user_msg }).ok();
 
+        self.run(&backend, &tx, new_messages, true).await
+    }
+
+    /// Carry on a conversation without new user text.
+    ///
+    /// Reads the [`inbox`](Self::inbox) and runs the same loop as
+    /// [`prompt`](Self::prompt) from where the conversation stands. This is how a host
+    /// lets the model act on a result delivered after its run ended, continues after a
+    /// pause, or picks up a conversation it saved and restored with
+    /// [`replace_messages`](Self::replace_messages): a tool call left without a result
+    /// by a run that never finished is marked failed rather than run again.
+    ///
+    /// Answers `Err` with no events when there is nothing to do: the inbox is empty and
+    /// the conversation is not waiting on a reply (see [`needs_reply`](Self::needs_reply)).
+    pub async fn resume(
+        &mut self,
+        backend: impl Into<Backend>,
+        tx: mpsc::UnboundedSender<AgentEvent>,
+    ) -> CoreResult<()> {
+        if self.inbox.is_empty() && !self.needs_reply() {
+            return Err(CoreError::Agent(
+                "Nothing to resume: the conversation is not waiting on a reply".into(),
+            ));
+        }
+
+        let backend = backend.into();
+        self.reset_abort();
+        tx.send(AgentEvent::AgentStart).ok();
+
+        let mut new_messages: Vec<Message> = Vec::new();
+        self.settle_interrupted(&mut new_messages, &tx);
+        self.read_inbox(&mut new_messages, &tx);
+
+        // The inbox held only results nobody was waiting on.
+        if !self.needs_reply() {
+            tx.send(AgentEvent::AgentEnd {
+                messages: new_messages,
+            })
+            .ok();
+            return Ok(());
+        }
+
+        self.run(&backend, &tx, new_messages, false).await
+    }
+
+    /// The loop behind [`prompt`](Self::prompt) and [`resume`](Self::resume), from the
+    /// first generation to `AgentEnd`. `fresh` says the last message is a prompt's own
+    /// user message, which a failed first generation takes back out.
+    async fn run(
+        &mut self,
+        backend: &Backend,
+        tx: &mpsc::UnboundedSender<AgentEvent>,
+        mut new_messages: Vec<Message>,
+        fresh: bool,
+    ) -> CoreResult<()> {
         // Under the Summarize strategy, fold overflowing older turns into a
         // pinned summary before generating (best-effort; no-op otherwise).
-        self.compress_if_needed(&backend, &tx).await;
+        self.compress_if_needed(backend, tx).await;
 
-        // Messages produced this prompt (assistant turns + tool results),
-        // reported in the final `AgentEnd`.
-        let mut new_messages: Vec<Message> = Vec::new();
         #[cfg(feature = "tools")]
         let has_tools = !self.tools.is_empty();
         #[cfg(not(feature = "tools"))]
         let has_tools = false;
 
         for iteration in 0..self.config.max_tool_iterations {
+            if iteration > 0 {
+                self.read_inbox(&mut new_messages, tx);
+            }
             tx.send(AgentEvent::TurnStart).ok();
 
-            let gen = match self.generate_once(&backend, &tx).await {
+            let gen = match self.generate_once(backend, tx).await {
                 Ok(gen) => gen,
                 Err(CoreError::Aborted) => {
                     // Aborted mid-generation: record an (empty) assistant turn
@@ -410,17 +702,20 @@ impl Agent {
                 Err(e) => {
                     // Context overflow, backend not ready, generation failure.
                     log::error!("Agent::prompt: generation error: {e}");
-                    // On the first turn, drop the just-added user message so a
-                    // retry starts clean. On later turns the conversation
-                    // already carries tool context; leave it for re-pruning.
-                    if iteration == 0 {
+                    // On a prompt's first turn, drop the just-added user message so
+                    // a retry starts clean. Otherwise the conversation already
+                    // carries the run's context; leave it for re-pruning.
+                    if fresh && iteration == 0 {
                         self.messages.pop();
                     }
                     tx.send(AgentEvent::Error {
                         message: e.to_string(),
                     })
                     .ok();
-                    tx.send(AgentEvent::AgentEnd { messages: vec![] }).ok();
+                    tx.send(AgentEvent::AgentEnd {
+                        messages: new_messages,
+                    })
+                    .ok();
                     return Ok(());
                 }
             };
@@ -466,13 +761,17 @@ impl Agent {
             })
             .ok();
 
-            // No tool calls → this is the final answer.
+            // No tool calls → this is the final answer, unless something landed in
+            // the inbox while it was being written.
             if tool_calls.is_empty() {
                 tx.send(AgentEvent::TurnEnd {
                     message: assistant_msg,
                     tool_results: vec![],
                 })
                 .ok();
+                if self.read_inbox(&mut new_messages, tx) > 0 {
+                    continue;
+                }
                 tx.send(AgentEvent::AgentEnd {
                     messages: new_messages,
                 })
@@ -485,10 +784,22 @@ impl Agent {
             // always empty and we returned above).
             #[cfg(feature = "tools")]
             {
-                let aborted = self
-                    .run_tool_calls(&tool_calls, assistant_msg, &mut new_messages, &tx)
+                let round = self
+                    .run_tool_calls(&tool_calls, assistant_msg, &mut new_messages, tx)
                     .await;
-                if aborted {
+                if round.aborted {
+                    tx.send(AgentEvent::AgentEnd {
+                        messages: new_messages,
+                    })
+                    .ok();
+                    return Ok(());
+                }
+                if round.pending && self.config.pause_on_pending && self.inbox.is_empty() {
+                    log::info!("Agent::prompt: paused on pending tool calls");
+                    tx.send(AgentEvent::Paused {
+                        pending: self.pending_calls(),
+                    })
+                    .ok();
                     tx.send(AgentEvent::AgentEnd {
                         messages: new_messages,
                     })
@@ -520,7 +831,6 @@ impl Agent {
 
     /// Execute every tool call from one assistant turn, appending a tool-result
     /// message per call and emitting the matching events, then emit `TurnEnd`.
-    /// Returns `true` if an abort was requested while tools were running.
     #[cfg(feature = "tools")]
     async fn run_tool_calls(
         &mut self,
@@ -528,7 +838,7 @@ impl Agent {
         assistant_msg: Message,
         new_messages: &mut Vec<Message>,
         tx: &mpsc::UnboundedSender<AgentEvent>,
-    ) -> bool {
+    ) -> ToolRound {
         let mut tool_results: Vec<ToolResult> = Vec::new();
         for call in tool_calls {
             // Consult the approval hook (if installed) before touching the tool.
@@ -539,7 +849,7 @@ impl Agent {
                 None => ApprovalDecision::Approve,
             };
 
-            let (content, is_error) = match decision {
+            let result = match decision {
                 ApprovalDecision::Deny { reason } => {
                     log::info!("Agent::prompt: tool '{}' denied: {reason}", call.name);
                     tx.send(AgentEvent::ToolDenied {
@@ -548,7 +858,13 @@ impl Agent {
                         reason: reason.clone(),
                     })
                     .ok();
-                    (reason, true)
+                    ToolResult {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        content: reason,
+                        is_error: true,
+                        pending: false,
+                    }
                 }
                 ApprovalDecision::Approve => {
                     tx.send(AgentEvent::ToolExecStart {
@@ -558,59 +874,54 @@ impl Agent {
                     })
                     .ok();
 
-                    let (content, is_error) = match self.execute_tool(call, tx).await {
-                        Ok(out) => (out.content, false),
+                    let (content, is_error, pending) = match self.execute_tool(call, tx).await {
+                        Ok(out) => (out.content, false, out.pending),
                         Err(e) => {
                             log::warn!("Agent::prompt: tool '{}' failed: {e}", call.name);
-                            (e.to_string(), true)
+                            (e.to_string(), true, false)
                         }
+                    };
+                    let result = ToolResult {
+                        tool_call_id: call.id.clone(),
+                        tool_name: call.name.clone(),
+                        content,
+                        is_error,
+                        pending,
                     };
 
                     tx.send(AgentEvent::ToolExecEnd {
                         tool_call_id: call.id.clone(),
                         tool_name: call.name.clone(),
-                        result: ToolResult {
-                            tool_call_id: call.id.clone(),
-                            tool_name: call.name.clone(),
-                            content: content.clone(),
-                            is_error,
-                        },
+                        result: result.clone(),
                     })
                     .ok();
-
-                    (content, is_error)
+                    result
                 }
             };
 
-            let result = ToolResult {
-                tool_call_id: call.id.clone(),
-                tool_name: call.name.clone(),
-                content: content.clone(),
-                is_error,
-            };
-            let result_msg =
-                Message::tool_result(self.next_id(), &call.id, &call.name, content, is_error);
-            self.messages.push(result_msg.clone());
-            new_messages.push(result_msg.clone());
-            tx.send(AgentEvent::MessageStart {
-                message: result_msg.clone(),
-            })
-            .ok();
-            tx.send(AgentEvent::MessageEnd {
-                message: result_msg,
-            })
-            .ok();
-
+            let mut result_msg = Message::tool_result(
+                self.next_id(),
+                &call.id,
+                &call.name,
+                result.content.clone(),
+                result.is_error,
+            );
+            result_msg.tool_result = Some(result.clone());
+            self.record(result_msg, new_messages, tx);
             tool_results.push(result);
         }
 
+        let pending = tool_results.iter().any(|r| r.pending);
         tx.send(AgentEvent::TurnEnd {
             message: assistant_msg,
             tool_results,
         })
         .ok();
 
-        self.abort.load(Ordering::Relaxed)
+        ToolRound {
+            aborted: self.abort.load(Ordering::Relaxed),
+            pending,
+        }
     }
 
     /// Convenience wrapper over [`prompt`](Agent::prompt) that creates the event
@@ -827,7 +1138,6 @@ impl Agent {
 
     /// Dispatch one parsed tool call to its registered [`Tool`].
     ///
-    /// Forwards the tool's streaming progress as `ToolExecUpdate` events.
     /// Returns `CoreError::Tool` when no tool matches the requested name.
     #[cfg(feature = "tools")]
     async fn execute_tool(
@@ -839,21 +1149,8 @@ impl Agent {
             return Err(CoreError::Tool(format!("unknown tool: {}", call.name)));
         };
 
-        let update_tx = tx.clone();
-        let tool_call_id = call.id.clone();
-        let tool_name = call.name.clone();
-        let on_update: ToolUpdateCallback = Box::new(move |partial: &str| {
-            update_tx
-                .send(AgentEvent::ToolExecUpdate {
-                    tool_call_id: tool_call_id.clone(),
-                    tool_name: tool_name.clone(),
-                    partial: partial.to_string(),
-                })
-                .ok();
-        });
-
-        tool.execute(&call.id, call.arguments.clone(), Some(on_update))
-            .await
+        let ctx = ToolContext::new(&call.id, &call.name, self.abort.clone(), tx.clone());
+        tool.execute(call.arguments.clone(), &ctx).await
     }
 
     /// Summarize-and-compress: when the conversation overflows under the
@@ -985,7 +1282,15 @@ impl Agent {
     }
 }
 
-/// Render selected messages as a plain-text transcript for summarization.
+/// How one round of tool calls ended.
+#[cfg(feature = "tools")]
+struct ToolRound {
+    /// An abort was requested while the tools ran.
+    aborted: bool,
+    /// At least one call answered with a pending output.
+    pending: bool,
+}
+
 /// What a summarization pass would fold away and what it would ask for, worked out without
 /// touching a backend. `None` when everything fits and there is nothing to fold.
 ///
@@ -1050,6 +1355,7 @@ fn plan_summary(
     Some((remove, asked, prompt))
 }
 
+/// Render selected messages as a plain-text transcript for summarization.
 fn render_transcript(messages: &[Message], indices: &[usize]) -> String {
     indices
         .iter()

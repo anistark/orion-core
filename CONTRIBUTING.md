@@ -49,7 +49,7 @@ cargo test --doc                              # doctests
   wildcard arm so added variants don't break downstream builds.
 - **MSRV is Rust 1.85**, and raising it is a minor-version (never a patch)
   change. The MSRV guarantee covers the **default feature set** only - optional
-  example features such as `openai-example` pull a heavier dependency tree, may
+  features such as `http-backend` pull a heavier dependency tree, may
   require a newer toolchain, and are exercised on stable rather than on MSRV.
 
 ## Commit messages & PRs

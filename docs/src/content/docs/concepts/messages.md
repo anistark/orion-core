@@ -37,8 +37,19 @@ back to the originating call via `tool_call_id`.
 Every message has:
 
 - an **`id`**,
-- a **`timestamp`**, and
-- an optional **`token_count`** (populated after tokenization).
+- a **`timestamp`**,
+- an optional **`token_count`**, which the agent leaves unset for a host that
+  counts tokens itself to fill in (per-generation counts arrive as
+  [`GenerationStats`](../events/#metering-usage-with-generationstats) events),
+- **`tool_calls`** - the calls an assistant message asked for, each with an
+  `id`, `name` and `arguments`,
+- **`tool_result`** - on a tool-result message, the `ToolResult` it carries, and
+- **`pinned`** - see [Pinning](#pinning).
+
+A `ToolResult` has `tool_call_id`, `tool_name`, `content`, `is_error`, and
+`pending`. `pending` marks a placeholder for a result still to come; it is left
+out when false and read as false when missing, so conversations saved by earlier
+releases load unchanged.
 
 ## Pinning
 
@@ -58,3 +69,7 @@ call/result pairs. See [Context & budgets](../context/) for how pruning works.
 
 Because the conversation is a plain `Vec<Message>`, you can serialize it, store
 it, and restore it later with `agent.replace_messages(saved_messages)`.
+
+A tool result carries `pending: true` when it is a placeholder for a result still
+to come, so pending tool calls survive a save and restore. See
+[Long-running work](../long-running/#resuming).

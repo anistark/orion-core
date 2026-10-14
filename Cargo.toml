@@ -1,11 +1,15 @@
 [package]
 name = "orion-core"
-version = "0.7.2"
+version = "0.8.0"
 description = "Backend-agnostic agent harness for local LLM inference"
 authors = ["Kumar Anirudha <anirudhastark@gmail.com>"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.85"
+# Resolve dependencies to versions that still build on `rust-version`, so a
+# dependency raising its own floor cannot silently raise ours (resolver 3,
+# stable since Cargo 1.84).
+resolver = "3"
 repository = "https://github.com/anistark/orion-core"
 homepage = "https://github.com/anistark/orion-core"
 documentation = "https://docs.rs/orion-core"
@@ -17,9 +21,11 @@ categories = ["asynchronous", "text-processing"]
 default = ["tools", "chat-backend"]
 # The `Tool` trait + the agent's tool-execution loop. Disable
 # (`--no-default-features`) to drop the `async-trait` dependency for minimal
-# consumers that only need plain chat. Tool-call *parsing* (`parse_tool_calls`,
-# `ParsedToolCall`, `ToolSchema`) stays available either way.
-tools = ["dep:async-trait"]
+# consumers that only need plain chat. Also enables tokio's `macros`, which
+# `ToolContext::run_child` uses to stream a child agent's events live.
+# Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`, `ToolSchema`)
+# stays available either way.
+tools = ["dep:async-trait", "tokio/macros"]
 # The `ChatBackend` trait: a backend taking structured messages rather than a
 # formatted prompt, which is what hosted chat APIs want. Async, so it needs
 # `async-trait` for dyn-compatibility. Disable for a prompt-only consumer.

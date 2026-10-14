@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use orion_core::{
     Agent, AgentConfig, AgentEvent, CoreError, CoreResult, GenerationResult, InferenceParams,
-    LlmBackend, TokenCallback, Tool, ToolOutput, ToolUpdateCallback,
+    LlmBackend, TokenCallback, Tool, ToolContext, ToolOutput,
 };
 use tokio::sync::mpsc;
 
@@ -135,14 +135,10 @@ impl Tool for NoopTool {
     }
     async fn execute(
         &self,
-        _tool_call_id: &str,
         _args: serde_json::Value,
-        _on_update: Option<ToolUpdateCallback>,
+        _ctx: &ToolContext,
     ) -> CoreResult<ToolOutput> {
-        Ok(ToolOutput {
-            content: "ok".into(),
-            details: serde_json::Value::Null,
-        })
+        Ok(ToolOutput::new("ok"))
     }
 }
 

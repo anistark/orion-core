@@ -42,10 +42,10 @@ pub struct PreparedContext {
     /// The fully formatted prompt string to feed the backend.
     pub prompt: String,
     /// The system prompt with any tool instructions folded in, without template markup.
-    /// What a [`ChatBackend`](crate::ChatBackend) sends as its system message.
+    /// What a `ChatBackend` (feature `chat-backend`) sends as its system message.
     pub system: String,
     /// The messages that survived pruning, in order, carrying no system message. What a
-    /// [`ChatBackend`](crate::ChatBackend) sends instead of `prompt`.
+    /// `ChatBackend` sends instead of `prompt`.
     pub messages: Vec<Message>,
     /// Total token count of `prompt`.
     pub token_count: u32,

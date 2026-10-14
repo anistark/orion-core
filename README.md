@@ -18,7 +18,7 @@
 
 Bring your own model runtime - llama.cpp, MLX, cloud APIs, anything. Orion is published as the [`orion-core`](https://crates.io/crates/orion-core) crate.
 
-Orion handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer - see [`tools`](#tools--give-the-model-abilities)).
+Orion handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer - see [`tools`](#tools---give-the-model-abilities)).
 
 ## How It Works
 
@@ -31,9 +31,12 @@ User sends "Hello"
           → AgentEvent stream (your UI subscribes here)
             → If the model called tools: run them, append results, loop back
               → Done (model returns a tool-free answer)
+
+Agent.inbox() reaches the agent mid-run (read before every model call),
+and Agent.resume() carries a conversation on without new user text.
 ```
 
-You implement one trait (`LlmBackend`) for your inference engine. Orion handles everything above it.
+You implement one backend trait for your inference engine - `LlmBackend` for a local engine fed a formatted prompt, or `ChatBackend` for a hosted chat API fed messages - and Orion handles everything above it.
 
 ## Quick Start
 
@@ -60,8 +63,8 @@ let consumer = tokio::spawn(async move {
     while let Some(event) = rx.recv().await {
         match event {
             AgentEvent::MessageDelta { delta, .. } => print!("{delta}"),
-            AgentEvent::MessageEnd { message } => {
-                println!("\n\nDone: {} tokens", message.token_count.unwrap_or(0));
+            AgentEvent::GenerationStats { tokens_generated, .. } => {
+                println!("\n\nDone: {tokens_generated} tokens");
             }
             AgentEvent::ContextBudget { used_tokens, max_tokens, .. } => {
                 println!("Context: {used_tokens}/{max_tokens} tokens");
@@ -115,8 +118,12 @@ agent.set_inference_params(InferenceParams { temperature: 1.2, ..Default::defaul
 agent.clear();                              // Reset conversation
 agent.replace_messages(saved_messages);     // Restore a saved conversation
 
-// Abort a running generation
+// Stop a run: the generation, tools watching ctx.is_aborted(), and child agents
 agent.abort();
+
+// Reach the agent mid-run, and carry on without new user text
+agent.inbox().push("Also check the README.");
+agent.resume(backend, tx).await?;
 ```
 
 ### `backend` - Bring Your Own LLM
@@ -160,6 +167,38 @@ impl LlmBackend for LlamaCppBackend {
 
 The backend runs on a blocking thread - no async required. Orion handles the async orchestration.
 
+**Hosted chat APIs: `ChatBackend`** *(feature `chat-backend`, on by default)*. A hosted API takes a list of messages and applies the model's own chat template, so handing it Orion's already-formatted prompt either templates twice or collapses every turn into one user message. Implement `ChatBackend` instead: the agent skips its own templating and hands you the system prompt and the pruned messages. Pruning, the tool loop and the event stream are unchanged, and it is async, since the work is I/O.
+
+```rust
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use async_trait::async_trait;
+use orion_core::{ChatBackend, CoreResult, GenerationResult, InferenceParams, Message, TokenCallback};
+
+struct HostedApi; // your HTTP client
+
+#[async_trait]
+impl ChatBackend for HostedApi {
+    async fn chat(
+        &self,
+        system: &str,          // System prompt, tool instructions folded in
+        messages: &[Message],  // The turns that survived pruning, no system message
+        params: &InferenceParams,
+        abort: Arc<AtomicBool>, // Check between chunks to support cancellation
+        mut on_token: TokenCallback,
+    ) -> CoreResult<GenerationResult> {
+        // Send `system` + `messages` to the API, call on_token per chunk,
+        // and return the usage the response reports.
+        todo!()
+    }
+}
+
+let backend: Arc<dyn ChatBackend> = Arc::new(HostedApi);
+let reply = agent.send("Hello", backend).await?;
+```
+
+`agent.prompt` and `agent.send` take either kind: an `Arc<dyn LlmBackend>` and an `Arc<dyn ChatBackend>` both convert into the `Backend` enum. `send` is for a caller that is not streaming - it runs the turn and answers with the final assistant message, returning an `Err` for an error the run reported.
+
 ### `backends` - Ready-Made Backends *(feature `http-backend`)*
 
 Don't want to implement `LlmBackend` yourself? Enable the `http-backend` feature for `OpenAiHttpBackend`, a streaming OpenAI-compatible client. One implementation targets OpenAI, llama.cpp `llama-server`, vLLM, LM Studio, and Ollama - change only the base URL:
@@ -177,7 +216,10 @@ let backend: Arc<dyn LlmBackend> = Arc::new(OpenAiHttpBackend::new(config).unwra
 
 Tokens stream through `on_token` as they arrive; the `GenerationResult` carries the real token counts from the response's `usage` block. Transport failures surface as `CoreError::BackendUnreachable` (no response - safe to retry or fail over), while an endpoint that answers with an error status surfaces as `CoreError::Backend`. It pulls in a blocking HTTP client, so it's off by default.
 
-Choose the endpoint with `.with_endpoint(...)`. The default `OpenAiEndpoint::Chat` posts to `/v1/chat/completions`, sending Orion's formatted prompt as a single user message (the server then applies its own chat template). `OpenAiEndpoint::Completions` posts to `/v1/completions`, sending the already-templated prompt verbatim - prefer it against a local instruct model on a completion endpoint, where double-templating would corrupt the prompt.
+`OpenAiHttpBackend` implements both traits, and which one you hand the agent decides what goes over the wire:
+
+- **As a `ChatBackend`** (`Arc<dyn ChatBackend>`) it posts a real message list, system prompt included, to `/v1/chat/completions`, and the server applies the model's own template. Use this against hosted APIs and chat servers. `with_endpoint` is not consulted on this path.
+- **As an `LlmBackend`** (`Arc<dyn LlmBackend>`) it sends Orion's formatted prompt, chosen with `.with_endpoint(...)`: `OpenAiEndpoint::Completions` posts it verbatim to `/v1/completions`, which is the right choice for a local instruct model on a completion endpoint. `OpenAiEndpoint::Chat` (the default) posts it to `/v1/chat/completions` as a single user message, which templates twice; prefer the `ChatBackend` path there.
 
 ### `messages` - Conversation Data
 
@@ -203,7 +245,7 @@ let result = Message::tool_result(
 
 **Roles:** `System`, `User`, `Assistant`, `ToolCall`, `ToolResult`
 
-Every message has an `id`, `timestamp`, and optional `token_count` (populated after tokenization). Assistant messages can carry `tool_calls`; tool result messages carry a `tool_result`.
+Every message has an `id`, `timestamp`, and optional `token_count`, which the agent leaves unset for a host that counts tokens itself to fill in. Assistant messages can carry `tool_calls`; tool result messages carry a `tool_result`. A `ToolResult` has `tool_call_id`, `tool_name`, `content`, `is_error` and `pending`, which marks a placeholder for a result still to come and reads as false when missing, so conversations saved by earlier releases load unchanged.
 
 ### `events` - Real-Time UI Updates
 
@@ -213,13 +255,14 @@ The agent emits events as it processes. Subscribe to these for building reactive
 
 ```sh
 AgentStart
-TurnStart
 MessageStart    { user message }
 MessageEnd      { user message }
+TurnStart
 ContextBudget   { used: 120, max: 4096, included: 5, pruned: 0 }
 MessageDelta    { delta: "Hello", tokens: 1, tps: 45.2 }
 MessageDelta    { delta: " there", tokens: 2, tps: 46.1 }
 MessageDelta    { delta: "!", tokens: 3, tps: 44.8 }
+GenerationStats { tokens_generated: 3, prompt_tokens: 120, ... }
 MessageEnd      { assistant message }
 TurnEnd         { message, tool_results: [] }
 AgentEnd        { messages: [...] }
@@ -234,6 +277,7 @@ MessageEnd      { user message }
 TurnStart
 ContextBudget   ...
 MessageDelta    ...
+GenerationStats { tokens_generated, prompt_tokens, ... }
 MessageEnd      { assistant message with tool_calls }
 ToolExecStart   { tool_call_id, tool_name, args }
 ToolExecUpdate  { partial progress }
@@ -243,6 +287,7 @@ MessageEnd      { tool_result message }
 TurnEnd         { message, tool_results: [...] }
 TurnStart                            ← new turn: LLM responds to tool result
 MessageDelta    ...
+GenerationStats { ... }
 MessageEnd      { final assistant message }
 TurnEnd         { message, tool_results: [] }
 AgentEnd        { messages: [...] }
@@ -253,15 +298,19 @@ AgentEnd        { messages: [...] }
 | Event | When | Key Data |
 |-------|------|----------|
 | `AgentStart` | Processing begins | - |
-| `AgentEnd` | All done | All new messages |
+| `AgentEnd` | All done | Every message the run added, other than the prompt's own (also on a failed run) |
 | `TurnStart` | New LLM call begins | - |
 | `TurnEnd` | LLM call + tools done | Assistant message, tool results |
-| `MessageStart` | Any message added | Full message |
+| `MessageStart` | A user or tool-result message added (an assistant message streams as `MessageDelta` instead) | Full message |
 | `MessageDelta` | Each streamed token | `delta`, `tokens_generated`, `tokens_per_sec` |
 | `MessageEnd` | Message complete | Full message |
 | `ToolExecStart` | Tool begins running | Tool name, args |
 | `ToolExecUpdate` | Tool streams progress | Partial output |
-| `ToolExecEnd` | Tool finished | Result, is_error |
+| `ToolExecEnd` | Tool finished | Result, is_error, pending |
+| `ToolDenied` | Approval hook refused a call | Tool name, reason |
+| `ToolResolved` | A pending call's result arrived via the inbox | Result |
+| `Paused` | Run ended to wait on pending calls | Pending calls |
+| `Nested` | A child agent's event, from `ToolContext::run_child` | Call id, the child's event |
 | `ContextBudget` | After context prep | Tokens used/max, messages included/pruned |
 | `Warning` | Non-fatal issue | Warning text |
 | `Error` | Fatal error | Error text |
@@ -358,11 +407,10 @@ whole-message bare JSON object carrying both `name` and `arguments` also count,
 so smaller models still trigger tools when they drift from the exact format. Register tools with `agent.set_tools(vec![Box::new(MyTool)])`; with no
 tools registered, parsing is skipped entirely and replies pass through verbatim.
 
-Define tools the model can call. Each tool has a name, description, JSON Schema for parameters, and an async `execute` function.
+Define tools the model can call. Each tool has a name, description, JSON Schema for parameters, and an async `execute` function. `execute` is handed a `ToolContext` for the call: its id, the run's stop flag (`ctx.is_aborted()`), `ctx.update(..)` for progress, and `ctx.run_child(..)` for running another agent (see [Long-running work](#long-running-work)).
 
 ```rust
-use orion_core::{Tool, ToolOutput, ToolSchema, CoreResult};
-use orion_core::tools::ToolUpdateCallback;
+use orion_core::{CoreResult, Tool, ToolContext, ToolOutput};
 use async_trait::async_trait;
 
 struct ReadFileTool;
@@ -385,17 +433,13 @@ impl Tool for ReadFileTool {
 
     async fn execute(
         &self,
-        _tool_call_id: &str,
         args: serde_json::Value,
-        _on_update: Option<ToolUpdateCallback>,
+        _ctx: &ToolContext,
     ) -> CoreResult<ToolOutput> {
         let path = args["path"].as_str().unwrap_or("");
         let content = std::fs::read_to_string(path)
             .map_err(|e| orion_core::CoreError::Tool(e.to_string()))?;
-        Ok(ToolOutput {
-            content,
-            details: serde_json::json!({"path": path}),
-        })
+        Ok(ToolOutput::new(content).with_details(serde_json::json!({"path": path})))
     }
 }
 
@@ -406,16 +450,61 @@ agent.set_tools(vec![Box::new(ReadFileTool)]);
 Tool schemas are automatically injected into the system prompt when formatting context, and `Agent::prompt` runs the full tool call → execute → feed result → LLM responds cycle for you (see the section intro above).
 
 **Opting out.** The `Tool` trait and the execution loop live behind the default
-`tools` feature, which pulls in [`async-trait`](https://crates.io/crates/async-trait).
+`tools` feature, which pulls in [`async-trait`](https://crates.io/crates/async-trait)
+and turns on tokio's `macros` feature, which `ToolContext::run_child` uses.
 Minimal consumers that only need plain chat can drop it:
 
 ```toml
-orion-core = { version = "0.7", default-features = false }
+orion-core = { version = "0.8", default-features = false }
 ```
 
+That also drops the default `chat-backend` feature and with it `ChatBackend`; add `features = ["chat-backend"]` back if you drive a hosted chat API.
+
 Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`) and `ToolSchema` stay
-available either way - only the `Tool` trait, `ToolOutput`, `ToolUpdateCallback`,
+available either way - only the `Tool` trait, `ToolOutput`, `ToolContext`,
 and `Agent::set_tools` require the feature.
+
+### Long-running work
+
+`Agent::prompt` borrows the agent until the run ends, and a tool's `execute` holds the
+run until it returns. Four pieces let work outlast that.
+
+**Pending results.** A tool that starts something slow can return
+`ToolOutput::pending("Started job 7. Its result will follow.")` instead of waiting.
+The placeholder is recorded as the call's result, so the model knows the work is
+under way, and the call is listed by `agent.pending_calls()` until the agent reads
+its real result from the inbox (not the moment you call `resolve`; a second result
+for the same call is dropped with a `Warning`).
+
+**The inbox.** `agent.inbox()` is a cloneable handle for reaching the agent from
+outside its run. `inbox.push(text)` queues a user message, and
+`inbox.resolve(call_id, content)` or `inbox.reject(call_id, reason)` delivers a
+pending call's result. The agent reads it before each model call, and again when the
+model gives its final answer, so anything that lands mid-run is answered in that run.
+
+**Resuming.** `agent.resume(backend, tx)` runs the loop with no new user text: after
+a result lands between runs, after a pause, or after restoring a saved conversation
+with `replace_messages`. Pending calls are worked out from the messages, so they
+survive a save, and a call a crashed run never finished is marked failed rather than
+run again. With `AgentConfig::pause_on_pending` set, a turn that leaves calls pending
+ends the run with `AgentEvent::Paused` instead of letting the model answer around
+them.
+
+```rust
+let inbox = agent.inbox();
+agent.prompt("Run the nightly report", backend.clone(), tx).await?;
+
+// Later, when the job the tool started finishes:
+for call in agent.pending_calls() {
+    inbox.resolve(&call.id, "Report written to out/nightly.csv");
+}
+agent.resume(backend, tx2).await?;
+```
+
+**Child agents.** Inside a tool, `ctx.run_child(&mut child, task, backend)` runs
+another agent and answers with its reply. The child's events stream live into the
+parent's as `AgentEvent::Nested` under the call that started it, and stopping the
+parent stops the child.
 
 > The code snippets in this README are mirrored by compile-checked [doctests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html) on the corresponding API items, so they can't silently drift from the real signatures. Run them with `cargo test --doc`.
 
@@ -425,7 +514,8 @@ and `Agent::set_tools` require the feature.
 use orion_core::{CoreError, CoreResult};
 
 // Error variants
-CoreError::Backend("No model loaded".into())    // LLM backend issues
+CoreError::Backend("No model loaded".into())      // LLM backend issues
+CoreError::BackendUnreachable("timed out".into()) // No response; safe to retry
 CoreError::Context("Token limit exceeded".into()) // Context pipeline issues
 CoreError::Tool("File not found".into())          // Tool execution issues
 CoreError::Agent("Empty message".into())          // Agent logic issues
@@ -441,7 +531,8 @@ All errors are serializable (implements `Serialize`) for easy transport over IPC
 │  Your Application (OrionPod, CLI, server, etc.)  │
 ├──────────────────────────────────────────────────┤
 │  Agent                                           │
-│  ├── prompt("Hello")                             │
+│  ├── prompt("Hello") / resume()                  │
+│  ├── Inbox (messages + late tool results)        │
 │  ├── Conversation state (Vec<Message>)           │
 │  ├── System prompt                               │
 │  ├── Registered tools                            │

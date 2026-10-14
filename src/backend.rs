@@ -144,6 +144,44 @@ pub fn estimate_tokens(text: &str) -> u32 {
 /// Unlike `generate` this is async, because the work is I/O rather than compute and there
 /// is no reason to hold a blocking thread for it.
 ///
+/// ```
+/// use std::sync::Arc;
+/// use std::sync::atomic::AtomicBool;
+/// use async_trait::async_trait;
+/// use orion_core::{
+///     Agent, AgentConfig, ChatBackend, CoreResult, GenerationResult, InferenceParams,
+///     Message, TokenCallback,
+/// };
+///
+/// struct HostedApi; // your HTTP client
+///
+/// #[async_trait]
+/// impl ChatBackend for HostedApi {
+///     async fn chat(
+///         &self,
+///         system: &str,          // System prompt, tool instructions folded in
+///         messages: &[Message],  // The turns that survived pruning, no system message
+///         params: &InferenceParams,
+///         abort: Arc<AtomicBool>, // Check between chunks to support cancellation
+///         mut on_token: TokenCallback,
+///     ) -> CoreResult<GenerationResult> {
+///         // Send `system` + `messages` to the API, call on_token per chunk,
+///         // and return the usage the response reports.
+/// #       on_token("Hi!", 1, 1.0);
+/// #       Ok(GenerationResult { text: "Hi!".into(), tokens_generated: 1, prompt_tokens: 0,
+/// #           tokens_per_sec: 1.0, time_to_first_token_ms: 1.0, generation_time_ms: 1.0 })
+///     }
+/// }
+///
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// let mut agent = Agent::new(AgentConfig::default());
+/// let backend: Arc<dyn ChatBackend> = Arc::new(HostedApi);
+/// let reply = agent.send("Hello", backend).await?;
+/// # assert_eq!(reply.content, "Hi!");
+/// # Ok::<(), orion_core::CoreError>(())
+/// # }).unwrap();
+/// ```
+///
 /// [`ChatTemplate`]: crate::ChatTemplate
 #[cfg(feature = "chat-backend")]
 #[async_trait::async_trait]

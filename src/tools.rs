@@ -1,9 +1,22 @@
 #[cfg(feature = "tools")]
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "tools")]
+use std::sync::Arc;
 
 #[cfg(feature = "tools")]
-use crate::error::CoreResult;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "tools")]
+use tokio::sync::mpsc;
+
+#[cfg(feature = "tools")]
+use crate::{
+    agent::Agent,
+    backend::Backend,
+    error::{CoreError, CoreResult},
+    events::AgentEvent,
+    messages::Message,
+};
 
 /// A tool call parsed out of an assistant message.
 ///
@@ -170,19 +183,296 @@ pub struct ToolSchema {
 }
 
 /// Result returned by a tool execution.
+///
+/// ```
+/// use orion_core::ToolOutput;
+///
+/// let done = ToolOutput::new("42").with_details(serde_json::json!({ "rows": 1 }));
+/// assert!(!done.pending);
+///
+/// let later = ToolOutput::pending("Started task 7. Its result will follow.");
+/// assert!(later.pending);
+/// ```
 #[cfg(feature = "tools")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolOutput {
     /// Output content fed back to the model as the tool result.
     pub content: String,
     /// Optional structured details for the UI (not sent to the model).
     #[serde(default)]
     pub details: serde_json::Value,
+    /// Whether the real result is still to come.
+    ///
+    /// A pending output is recorded as a placeholder result carrying `content`, so the
+    /// conversation stays well formed and the model knows the work is under way. The
+    /// call is then listed by [`Agent::pending_calls`] until its result is delivered
+    /// through the agent's [`Inbox`](crate::Inbox).
+    #[serde(default, skip_serializing_if = "crate::messages::is_false")]
+    pub pending: bool,
 }
 
-/// Callback for streaming tool progress.
 #[cfg(feature = "tools")]
-pub type ToolUpdateCallback = Box<dyn FnMut(&str) + Send>;
+impl ToolOutput {
+    /// A finished result.
+    pub fn new(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+            ..Self::default()
+        }
+    }
+
+    /// A placeholder for a result that will be delivered later.
+    ///
+    /// `content` is what the model reads in the meantime, so say what was started and
+    /// that the result will follow. Deliver the result through the agent's
+    /// [`Inbox`](crate::Inbox) and let the model act on it with
+    /// [`Agent::resume`]:
+    ///
+    /// ```
+    /// # use std::sync::Arc;
+    /// # use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    /// # use async_trait::async_trait;
+    /// # use orion_core::{Agent, AgentConfig, CoreResult, GenerationResult, InferenceParams,
+    /// #     LlmBackend, TokenCallback, Tool, ToolContext, ToolOutput};
+    /// # struct Scripted(AtomicUsize);
+    /// # impl LlmBackend for Scripted {
+    /// #     fn generate(&self, _p: &str, _x: &InferenceParams, _a: Arc<AtomicBool>,
+    /// #         mut on_token: TokenCallback) -> CoreResult<GenerationResult> {
+    /// #         let text = match self.0.fetch_add(1, Ordering::SeqCst) {
+    /// #             0 => "```tool_call\n{\"name\": \"report\", \"arguments\": {}}\n```",
+    /// #             1 => "Started the report.",
+    /// #             _ => "The report is in out/nightly.csv.",
+    /// #         };
+    /// #         on_token(text, 1, 1.0);
+    /// #         Ok(GenerationResult { text: text.into(), tokens_generated: 1,
+    /// #             prompt_tokens: 0, tokens_per_sec: 1.0,
+    /// #             time_to_first_token_ms: 1.0, generation_time_ms: 1.0 })
+    /// #     }
+    /// #     fn tokenize_count(&self, t: &str) -> CoreResult<u32> {
+    /// #         Ok(t.split_whitespace().count() as u32) }
+    /// #     fn is_ready(&self) -> bool { true }
+    /// # }
+    /// struct Report;
+    ///
+    /// #[async_trait]
+    /// impl Tool for Report {
+    ///     // name, label, description and parameters_schema as usual
+    /// #   fn name(&self) -> &str { "report" }
+    /// #   fn label(&self) -> &str { "Report" }
+    /// #   fn description(&self) -> &str { "Start the nightly report" }
+    /// #   fn parameters_schema(&self) -> serde_json::Value { serde_json::json!({}) }
+    ///     async fn execute(&self, _args: serde_json::Value, _ctx: &ToolContext) -> CoreResult<ToolOutput> {
+    ///         // Start the job on the host's own runtime, then answer straight away.
+    ///         Ok(ToolOutput::pending("Started the report. Its result will follow."))
+    ///     }
+    /// }
+    ///
+    /// # fn main() -> CoreResult<()> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// # let mut agent = Agent::new(AgentConfig::default());
+    /// # agent.set_tools(vec![Box::new(Report)]);
+    /// # let backend: Arc<dyn LlmBackend> = Arc::new(Scripted(AtomicUsize::new(0)));
+    /// # let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    /// # let (tx2, _rx2) = tokio::sync::mpsc::unbounded_channel();
+    /// let inbox = agent.inbox();
+    /// agent.prompt("Run the nightly report", backend.clone(), tx).await?;
+    ///
+    /// // Later, when the job the tool started finishes:
+    /// for call in agent.pending_calls() {
+    ///     inbox.resolve(&call.id, "Report written to out/nightly.csv");
+    /// }
+    /// agent.resume(backend, tx2).await?;
+    /// # assert!(agent.pending_calls().is_empty());
+    /// # assert_eq!(agent.messages().last().unwrap().content, "The report is in out/nightly.csv.");
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub fn pending(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+            pending: true,
+            ..Self::default()
+        }
+    }
+
+    /// Attach structured details for the UI. Builder-style.
+    pub fn with_details(mut self, details: serde_json::Value) -> Self {
+        self.details = details;
+        self
+    }
+}
+
+/// What a tool knows about the call it is serving.
+///
+/// The agent builds one for every call and hands it to [`Tool::execute`]. It carries
+/// the call's identity, the run's stop flag, and the way back into the run's event
+/// stream, for progress and for the events of a child agent.
+///
+/// A host testing a tool on its own can build one with [`ToolContext::detached`].
+#[cfg(feature = "tools")]
+#[derive(Debug, Clone)]
+pub struct ToolContext {
+    call_id: String,
+    tool_name: String,
+    abort: Arc<AtomicBool>,
+    events: mpsc::UnboundedSender<AgentEvent>,
+}
+
+#[cfg(feature = "tools")]
+impl ToolContext {
+    /// A context for a call, reporting into `events` and stopped by `abort`.
+    pub fn new(
+        call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        abort: Arc<AtomicBool>,
+        events: mpsc::UnboundedSender<AgentEvent>,
+    ) -> Self {
+        Self {
+            call_id: call_id.into(),
+            tool_name: tool_name.into(),
+            abort,
+            events,
+        }
+    }
+
+    /// A context whose events go nowhere and which is never stopped, for running a
+    /// tool outside an agent.
+    pub fn detached(call_id: impl Into<String>, tool_name: impl Into<String>) -> Self {
+        let (events, _) = mpsc::unbounded_channel();
+        Self::new(call_id, tool_name, Arc::default(), events)
+    }
+
+    /// Id of the call being served.
+    pub fn call_id(&self) -> &str {
+        &self.call_id
+    }
+
+    /// Name the call was made under.
+    pub fn tool_name(&self) -> &str {
+        &self.tool_name
+    }
+
+    /// Whether the run has been asked to stop. A long tool should check this and
+    /// return early when it is set.
+    pub fn is_aborted(&self) -> bool {
+        self.abort.load(Ordering::Relaxed)
+    }
+
+    /// The run's stop flag, for handing to work the tool starts.
+    pub fn abort_flag(&self) -> Arc<AtomicBool> {
+        self.abort.clone()
+    }
+
+    /// Report progress, as an [`AgentEvent::ToolExecUpdate`].
+    pub fn update(&self, partial: impl Into<String>) {
+        self.events
+            .send(AgentEvent::ToolExecUpdate {
+                tool_call_id: self.call_id.clone(),
+                tool_name: self.tool_name.clone(),
+                partial: partial.into(),
+            })
+            .ok();
+    }
+
+    /// Pass an event from work the tool is running into the run, wrapped as an
+    /// [`AgentEvent::Nested`] under this call.
+    pub fn forward(&self, event: AgentEvent) {
+        self.events
+            .send(AgentEvent::Nested {
+                tool_call_id: self.call_id.clone(),
+                tool_name: self.tool_name.clone(),
+                event: Box::new(event),
+            })
+            .ok();
+    }
+
+    /// Run a child agent on `text` as part of this call and answer with its reply.
+    ///
+    /// The child's events are forwarded live as [`AgentEvent::Nested`] under this call,
+    /// so a host can show the child's work inside the parent's turn. For the length of
+    /// the run the child answers to the parent's stop flag: stopping the parent stops
+    /// the child, and a flag the host took from the child earlier with
+    /// [`Agent::abort_flag`] does not reach this run.
+    ///
+    /// Answers `Err(CoreError::Aborted)` when the parent was stopped, and the child's
+    /// error when its run failed. The child keeps its conversation, so a tool that
+    /// holds on to it can send it a follow-up later.
+    ///
+    /// ```
+    /// use async_trait::async_trait;
+    /// use orion_core::{Agent, AgentConfig, Backend, CoreResult, Tool, ToolContext, ToolOutput};
+    ///
+    /// /// Hands a question to a researcher agent and answers with what it found.
+    /// struct Delegate {
+    ///     backend: Backend,
+    /// }
+    ///
+    /// #[async_trait]
+    /// impl Tool for Delegate {
+    ///     fn name(&self) -> &str { "delegate" }
+    ///     fn label(&self) -> &str { "Delegate" }
+    ///     fn description(&self) -> &str { "Ask a researcher to look into something" }
+    ///     fn parameters_schema(&self) -> serde_json::Value {
+    ///         serde_json::json!({
+    ///             "type": "object",
+    ///             "properties": { "task": { "type": "string" } },
+    ///             "required": ["task"]
+    ///         })
+    ///     }
+    ///
+    ///     async fn execute(&self, args: serde_json::Value, ctx: &ToolContext) -> CoreResult<ToolOutput> {
+    ///         let mut researcher = Agent::new(AgentConfig {
+    ///             system_prompt: "You research one question and report back briefly.".into(),
+    ///             ..AgentConfig::default()
+    ///         });
+    ///         let task = args["task"].as_str().unwrap_or_default();
+    ///         let reply = ctx.run_child(&mut researcher, task, self.backend.clone()).await?;
+    ///         Ok(ToolOutput::new(reply.content))
+    ///     }
+    /// }
+    /// ```
+    pub async fn run_child(
+        &self,
+        child: &mut Agent,
+        text: impl Into<String>,
+        backend: impl Into<Backend>,
+    ) -> CoreResult<Message> {
+        if self.is_aborted() {
+            return Err(CoreError::Aborted);
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let own = child.lend_abort(self.abort.clone());
+
+        let run = child.prompt(text, backend, tx);
+        let forward = async {
+            let mut reply = None;
+            let mut failed = None;
+            while let Some(event) = rx.recv().await {
+                match &event {
+                    AgentEvent::TurnEnd { message, .. } => reply = Some(message.clone()),
+                    AgentEvent::Error { message } => failed = Some(message.clone()),
+                    _ => {}
+                }
+                self.forward(event);
+            }
+            (reply, failed)
+        };
+        let (ran, (reply, failed)) = tokio::join!(run, forward);
+
+        child.restore_abort(own);
+        ran?;
+
+        if self.is_aborted() {
+            return Err(CoreError::Aborted);
+        }
+        if let Some(message) = failed {
+            return Err(CoreError::Agent(message));
+        }
+        reply.ok_or_else(|| CoreError::Agent("The child agent produced no reply".into()))
+    }
+}
 
 /// A tool the agent can invoke.
 ///
@@ -191,8 +481,7 @@ pub type ToolUpdateCallback = Box<dyn FnMut(&str) + Send>;
 /// LLM emits a tool call.
 ///
 /// ```no_run
-/// use orion_core::{Tool, ToolOutput, CoreError, CoreResult};
-/// use orion_core::tools::ToolUpdateCallback;
+/// use orion_core::{CoreError, CoreResult, Tool, ToolContext, ToolOutput};
 /// use async_trait::async_trait;
 ///
 /// struct ReadFileTool;
@@ -213,14 +502,13 @@ pub type ToolUpdateCallback = Box<dyn FnMut(&str) + Send>;
 ///
 ///     async fn execute(
 ///         &self,
-///         _tool_call_id: &str,
 ///         args: serde_json::Value,
-///         _on_update: Option<ToolUpdateCallback>,
+///         _ctx: &ToolContext,
 ///     ) -> CoreResult<ToolOutput> {
 ///         let path = args["path"].as_str().unwrap_or("");
 ///         let content = std::fs::read_to_string(path)
 ///             .map_err(|e| CoreError::Tool(e.to_string()))?;
-///         Ok(ToolOutput { content, details: serde_json::json!({ "path": path }) })
+///         Ok(ToolOutput::new(content).with_details(serde_json::json!({ "path": path })))
 ///     }
 /// }
 ///
@@ -242,12 +530,11 @@ pub trait Tool: Send + Sync {
     fn parameters_schema(&self) -> serde_json::Value;
 
     /// Execute the tool with the given arguments.
-    async fn execute(
-        &self,
-        tool_call_id: &str,
-        args: serde_json::Value,
-        on_update: Option<ToolUpdateCallback>,
-    ) -> CoreResult<ToolOutput>;
+    ///
+    /// `ctx` identifies the call and carries the run's stop flag and event stream. Return
+    /// [`ToolOutput::pending`] to hand the model a placeholder now and deliver the
+    /// result later through the agent's [`Inbox`](crate::Inbox).
+    async fn execute(&self, args: serde_json::Value, ctx: &ToolContext) -> CoreResult<ToolOutput>;
 
     /// Return the full schema for system prompt injection.
     fn schema(&self) -> ToolSchema {

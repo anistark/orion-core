@@ -7,8 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use orion_core::{
     Agent, AgentConfig, AgentEvent, ApprovalDecision, ApprovalHook, CoreResult, GenerationResult,
-    InferenceParams, LlmBackend, Role, TokenCallback, Tool, ToolCall, ToolOutput,
-    ToolUpdateCallback,
+    InferenceParams, LlmBackend, Role, TokenCallback, Tool, ToolCall, ToolContext, ToolOutput,
 };
 use tokio::sync::mpsc;
 
@@ -85,15 +84,11 @@ impl Tool for CountingTool {
     }
     async fn execute(
         &self,
-        _tool_call_id: &str,
         _args: serde_json::Value,
-        _on_update: Option<ToolUpdateCallback>,
+        _ctx: &ToolContext,
     ) -> CoreResult<ToolOutput> {
         self.runs.fetch_add(1, Ordering::SeqCst);
-        Ok(ToolOutput {
-            content: "ran".into(),
-            details: serde_json::Value::Null,
-        })
+        Ok(ToolOutput::new("ran"))
     }
 }
 
