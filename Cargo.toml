@@ -1,6 +1,6 @@
 [package]
 name = "orion-core"
-version = "0.8.0"
+version = "0.9.0"
 description = "Backend-agnostic agent harness for local LLM inference"
 authors = ["Kumar Anirudha <anirudhastark@gmail.com>"]
 license = "MIT"
@@ -33,7 +33,15 @@ chat-backend = ["dep:async-trait"]
 # A supported, streaming OpenAI-compatible HTTP backend
 # (`backends::OpenAiHttpBackend`). Pulls in a blocking HTTP client; off by
 # default so the core crate stays dependency-light.
-http-backend = ["dep:reqwest"]
+http-backend = ["dep:reqwest", "reqwest/blocking"]
+# Agent Skills (`skills::Skill`, `SkillSet`): load `SKILL.md` folders and, with
+# `tools`, offer them to the model through a `load_skill` tool. Adds a YAML
+# parser for the frontmatter.
+skills = ["dep:serde_norway"]
+# Plugin marketplaces (`plugins`): fetch a Claude Code marketplace catalog,
+# install plugins from git into a store directory, and read the MCP servers and
+# skills they ship. Implies `skills`; adds an async HTTP client and runs `git`.
+plugins = ["skills", "dep:reqwest"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -44,10 +52,10 @@ thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = { version = "0.1", optional = true }
 reqwest = { version = "0.13", optional = true, default-features = false, features = [
-    "blocking",
     "json",
     "rustls",
 ] }
+serde_norway = { version = "0.9", optional = true }
 
 [dev-dependencies]
 # Enables `#[tokio::main]` and a multi-thread runtime for examples/tests.
@@ -56,6 +64,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 async-trait = "0.1"
 # Property tests for pruning invariants.
 proptest = "1"
+# Scratch directories for the skills and plugin-store tests.
+tempfile = "3"
 # Benchmarks for the context pipeline.
 criterion = "0.7"
 

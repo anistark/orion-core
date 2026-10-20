@@ -25,6 +25,8 @@ License: MIT © Kumar Anirudha
 │   ├── events.rs               # AgentEvent enum (lifecycle + tool exec events, non_exhaustive)
 │   ├── inbox.rs                # Inbox: messages and late tool results for an agent mid-run
 │   ├── messages.rs             # Message, Role, ToolCall, ToolResult
+│   ├── plugins/                # [plugins] Marketplace catalogs, git-backed PluginStore (~/.agents/plugins), PluginContents
+│   ├── skills.rs               # [skills] Skill (SKILL.md), discover_skills, SkillSet, the load_skill tool
 │   ├── template.rs             # ChatTemplate trait, per-family templates, detect_template
 │   └── tools.rs                # Tool trait, ToolContext, ToolSchema, ToolOutput, parse_tool_calls
 ├── examples/
@@ -55,7 +57,9 @@ License: MIT © Kumar Anirudha
 - Features: `tools` (default - `Tool` trait + execution loop + `async-trait`,
   and tokio's `macros` for `ToolContext::run_child`); `chat-backend` (default -
   the `ChatBackend` trait, `async-trait`); `http-backend` (optional `reqwest`,
-  `OpenAiHttpBackend`, gates the OpenAI example). Tool-call parsing and
+  `OpenAiHttpBackend`, gates the OpenAI example); `skills` (optional
+  `serde_norway`, `skills` module); `plugins` (implies `skills`, optional
+  `reqwest`, runs `git`; `plugins` module). Tool-call parsing and
   `ToolSchema` stay available with `--no-default-features`.
 - Clean code, proper naming, minimal comments, proper docstrings
 - Avoid over-commenting. Add only useful comments like docstrings, TODOs and NOTEs.

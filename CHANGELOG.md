@@ -6,13 +6,40 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-21
+
+### Added
+- **Agent Skills (feature `skills`).** `skills::Skill` loads a `SKILL.md`
+  folder (frontmatter `name`, `description`, `allowed-tools`), with `body`,
+  `files` and `read_file`, which never leaves the skill's folder.
+  `discover_skills` finds skills the way Claude Code reads a plugin's `skills`
+  setting. `SkillSet` keeps them by unique name, renders a system-prompt index
+  with `system_section`, and with `tools` hands out the `load_skill` tool
+  (`SkillTool`) that returns a skill's instructions or one of its files.
+- **`/skill` commands.** `SkillSet::parse_command` finds the skill a
+  `/name request` message names, and `expand_command` turns it into a message
+  carrying the skill's instructions, so the model follows a skill the user
+  picked without calling `load_skill`. `skills::parse_expanded` reads the skill
+  and request back out, for showing the message as typed.
+- **Plugin marketplaces (feature `plugins`).** `plugins::Catalog` parses and
+  fetches Claude Code marketplace catalogs (`marketplace.json` or a bare array)
+  with every source shape: `github`, `url`, `git-subdir`, `npm`, catalog paths.
+  `PluginStore` installs plugins from git into `~/.agents/plugins` in two steps,
+  `prepare` (fetch into staging, nothing runs) and `commit`, plus `cancel`,
+  `remove`, `latest_commit` and a catalog cache. `PluginContents` reads the MCP
+  servers (`plugin.json`, `.mcp.json` or the catalog entry, with
+  `${CLAUDE_PLUGIN_ROOT}` filled in) and skills a plugin ships, and lists the
+  parts only Claude Code uses.
+- `CoreError::Skill` and `CoreError::Plugin`.
+
 ### Changed
 - **`http-backend` moves to reqwest 0.13.** TLS now goes through
   `rustls-platform-verifier`, so certificates are checked against the OS trust
   store (and its revocations) instead of a bundled root list. This picks up the
   October 2026 eMudhra intermediate-CA distrust from macOS and Windows updates;
   on Linux, keep `ca-certificates` current. Lockfiles resolve the patched
-  `rustls-webpki` 0.103.16 and `webpki-root-certs` 1.0.10.
+  `rustls-webpki` 0.103.16 and `webpki-root-certs` 1.0.10. The `http-backend`
+  feature turns on reqwest's `blocking` client itself.
 - Benchmarks use criterion 0.7; the docs site moves to Astro 7 and
   Starlight 0.42.
 

@@ -106,6 +106,13 @@ pub mod events;
 pub mod inbox;
 /// Conversation data types: [`Message`], [`Role`], and tool call/result records.
 pub mod messages;
+/// Plugin marketplaces (feature `plugins`): catalogs, a git-backed plugin store,
+/// and the MCP servers and skills plugins ship.
+#[cfg(feature = "plugins")]
+pub mod plugins;
+/// Agent Skills (feature `skills`): `SKILL.md` folders and the `load_skill` tool.
+#[cfg(feature = "skills")]
+pub mod skills;
 /// Chat prompt templates for the supported model families.
 pub mod template;
 /// The `Tool` trait (feature `tools`), tool schemas, and tool-call parsing.
