@@ -43,10 +43,10 @@ log = "0.4"
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = { version = "0.1", optional = true }
-reqwest = { version = "0.12", optional = true, default-features = false, features = [
+reqwest = { version = "0.13", optional = true, default-features = false, features = [
     "blocking",
     "json",
-    "rustls-tls",
+    "rustls",
 ] }
 
 [dev-dependencies]
@@ -57,7 +57,7 @@ async-trait = "0.1"
 # Property tests for pruning invariants.
 proptest = "1"
 # Benchmarks for the context pipeline.
-criterion = "0.5"
+criterion = "0.7"
 
 # Thin demo driving the supported `backends::OpenAiHttpBackend`. Build/run with:
 #   cargo run --example openai_backend --features http-backend
