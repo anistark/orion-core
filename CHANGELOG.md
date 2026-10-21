@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **`http-backend` moves to reqwest 0.13.** TLS now goes through
+  `rustls-platform-verifier`, so certificates are checked against the OS trust
+  store (and its revocations) instead of a bundled root list. This picks up the
+  October 2026 eMudhra intermediate-CA distrust from macOS and Windows updates;
+  on Linux, keep `ca-certificates` current. Lockfiles resolve the patched
+  `rustls-webpki` 0.103.16 and `webpki-root-certs` 1.0.10.
+- Benchmarks use criterion 0.7; the docs site moves to Astro 7 and
+  Starlight 0.42.
+
 ## [0.8.0] - 2026-10-14
 
 ### Added
