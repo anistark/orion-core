@@ -45,6 +45,14 @@ pub enum CoreError {
     /// Generation was cancelled via the abort flag.
     #[error("Aborted")]
     Aborted,
+
+    /// A skill could not be loaded, or a skill or one of its files was not found.
+    #[error("Skill error: {0}")]
+    Skill(String),
+
+    /// A plugin catalog, install or store operation failed.
+    #[error("Plugin error: {0}")]
+    Plugin(String),
 }
 
 impl Serialize for CoreError {

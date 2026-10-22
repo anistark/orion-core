@@ -455,7 +455,7 @@ and turns on tokio's `macros` feature, which `ToolContext::run_child` uses.
 Minimal consumers that only need plain chat can drop it:
 
 ```toml
-orion-core = { version = "0.8", default-features = false }
+orion-core = { version = "0.9", default-features = false }
 ```
 
 That also drops the default `chat-backend` feature and with it `ChatBackend`; add `features = ["chat-backend"]` back if you drive a hosted chat API.
@@ -508,6 +508,79 @@ parent stops the child.
 
 > The code snippets in this README are mirrored by compile-checked [doctests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html) on the corresponding API items, so they can't silently drift from the real signatures. Run them with `cargo test --doc`.
 
+### `skills` - Agent Skills *(feature `skills`)*
+
+A skill is a folder holding a `SKILL.md`: YAML frontmatter with a `name` and a
+`description`, then Markdown instructions, often next to scripts and reference
+files. It is the format Claude Code plugins and other agents share. The model
+only sees each skill's name and description, so a large collection stays cheap;
+when a task matches, it calls the `load_skill` tool to read the instructions or
+one of the skill's files.
+
+```rust
+use orion_core::skills::{discover_skills, SkillSet};
+
+// `~/.agents/skills/<name>/SKILL.md`, one skill per folder.
+let skills = SkillSet::new(discover_skills("/home/me/.agents/skills".as_ref(), &["."]));
+let mut system_prompt = String::from("You are a helpful assistant.");
+if let Some(section) = skills.system_section() {
+    system_prompt.push_str("\n\n");
+    system_prompt.push_str(&section);
+}
+agent.set_system_prompt(system_prompt);
+agent.set_tools(vec![Box::new(skills.tool())]); // with the `tools` feature
+```
+
+`discover_skills(root, places)` reads skills the way Claude Code reads a
+plugin's `skills` setting: each place is a skill folder or a folder of them
+(`skills/` when none are given), plus a `SKILL.md` at the root. `load_skill`
+never reads outside a skill's folder.
+
+Users can also pick a skill themselves with a `/name request` message.
+`skills.expand_command(text)?` returns `Some(SkillCommand)` whose `message`
+carries the skill's instructions in a `<skill name="…">` block followed by the
+request, ready to send as the user turn, so the model needs no tool call;
+`parse_expanded(message)` gets the skill and request back for display.
+
+### `plugins` - Plugin Marketplaces *(feature `plugins`)*
+
+Fetch a Claude Code marketplace catalog (`marketplace.json`, or a bare array of
+its entries such as [AgentHub](https://agenthub.nullorder.org)'s
+`plugins.json`), install plugins from git into a shared store, and read the two
+things they ship that work in any agent: MCP servers and skills.
+
+```rust
+use orion_core::plugins::{Catalog, PluginStore};
+
+let catalog = Catalog::fetch("agenthub", "https://agenthub.nullorder.org/plugins.json").await?;
+let entry = catalog.get("superpowers-chrome").expect("listed");
+
+let store = PluginStore::new(PluginStore::default_root().expect("home directory"));
+// Blocking: run under `spawn_blocking` in real async code.
+let prepared = store.prepare(&catalog.name, entry)?;
+for (name, server) in &prepared.contents.mcp_servers {
+    println!("MCP server {name}: {:?} {:?}", server.command, server.args);
+}
+let installed = store.commit(prepared)?;
+```
+
+- **The store** (`~/.agents/plugins` by default) keeps each plugin's git
+  checkout at a pinned commit under `<marketplace>/<plugin>/`, the list of
+  installs in `installed.json`, and the last catalog of each marketplace in
+  `catalogs/`. Any tool can read it.
+- **Two-step installs.** `prepare` fetches into a staging area (a shallow,
+  sparse checkout for plugins in a subfolder) and reports what the plugin ships,
+  with `${CLAUDE_PLUGIN_ROOT}` already pointing at its final folder, so you can
+  show the user exactly what its MCP servers run. `commit` moves it into place;
+  `cancel` throws it away. `latest_commit` tells you when an update is out.
+- **Nothing runs on install.** Fetching runs no plugin code, `git` never asks for
+  credentials, and only `https://` (and `file://`) repositories are fetched.
+  npm-sourced plugins are not supported yet.
+- `PluginContents` reads MCP servers from `plugin.json` (inline or a path),
+  a root `.mcp.json`, or the catalog entry; skills via `discover_skills`; and
+  lists the Claude Code-only parts (commands, agents, hooks, language servers)
+  so you can say what is left out.
+
 ### `error` - Error Types
 
 ```rust
@@ -520,6 +593,8 @@ CoreError::Context("Token limit exceeded".into()) // Context pipeline issues
 CoreError::Tool("File not found".into())          // Tool execution issues
 CoreError::Agent("Empty message".into())          // Agent logic issues
 CoreError::Aborted                                // User cancelled
+CoreError::Skill("no skill named 'x'".into())     // Skill loading (feature `skills`)
+CoreError::Plugin("git fetch failed".into())      // Catalogs and installs (feature `plugins`)
 ```
 
 All errors are serializable (implements `Serialize`) for easy transport over IPC.
@@ -560,7 +635,7 @@ carry breaking changes and a patch bump is additive/fixes only. `CoreError` and
 `AgentEvent` are `#[non_exhaustive]` - match them with a wildcard arm so new
 variants don't break your build. The MSRV is **Rust 1.85** (raised only in a
 minor release), and that guarantee covers the default feature set; optional
-features like `http-backend` may need a newer toolchain. See
+features like `http-backend` and `plugins` may need a newer toolchain. See
 [CONTRIBUTING.md](CONTRIBUTING.md#stability--versioning) for the full policy.
 
 ## License
