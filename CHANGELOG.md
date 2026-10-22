@@ -6,7 +6,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-10-21
+## [0.9.0] - 2026-10-23
 
 ### Added
 - **Agent Skills (feature `skills`).** `skills::Skill` loads a `SKILL.md`
