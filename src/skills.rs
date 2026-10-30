@@ -23,10 +23,17 @@
 //! // agent.set_system_prompt(system_prompt);
 //! // agent.set_tools(vec![Box::new(skills.tool())]);
 //! ```
+//!
+//! Skills read from disk by default. To serve them from elsewhere, implement
+//! [`SkillStorage`](crate::skills::SkillStorage) and hand it to
+//! [`SkillSet::with_storage`](crate::skills::SkillSet::with_storage).
 
 use std::collections::HashSet;
+use std::fmt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, CoreResult};
@@ -38,8 +45,9 @@ pub const SKILL_FILE: &str = "SKILL.md";
 const MAX_INDEX_DESCRIPTION: usize = 1024;
 /// Most bundled files listed when a skill is loaded.
 const MAX_LISTED_FILES: usize = 200;
-/// Largest bundled file `load_skill` returns, in bytes.
-const MAX_FILE_BYTES: u64 = 256 * 1024;
+/// Largest bundled file `load_skill` returns, in bytes. Larger files are
+/// refused whatever [`SkillStorage`] they come from.
+pub const MAX_FILE_BYTES: u64 = 256 * 1024;
 
 /// One skill: a directory with a `SKILL.md`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,10 +102,18 @@ impl Skill {
     /// A missing `name` falls back to the folder's name and a missing
     /// `description` to an empty one.
     pub fn load(dir: &Path) -> CoreResult<Self> {
+        Self::parse(dir, &read_skill_md(dir)?)
+    }
+
+    /// Build the skill in `dir` from the text of its `SKILL.md`, for skills
+    /// that do not live on a local disk. `dir` names the skill's directory
+    /// wherever it is; nothing is read from it.
+    ///
+    /// A missing `name` falls back to the folder's name and a missing
+    /// `description` to an empty one.
+    pub fn parse(dir: &Path, text: &str) -> CoreResult<Self> {
         let file = dir.join(SKILL_FILE);
-        let text = std::fs::read_to_string(&file)
-            .map_err(|e| CoreError::Skill(format!("cannot read {}: {e}", file.display())))?;
-        let front = match split_frontmatter(&text) {
+        let front = match split_frontmatter(text) {
             Some((yaml, _)) => serde_norway::from_str::<Option<Frontmatter>>(yaml)
                 .map_err(|e| CoreError::Skill(format!("{}: bad frontmatter: {e}", file.display())))?
                 .unwrap_or_default(),
@@ -138,13 +154,7 @@ impl Skill {
 
     /// The instructions: `SKILL.md` without its frontmatter.
     pub fn body(&self) -> CoreResult<String> {
-        let file = self.dir.join(SKILL_FILE);
-        let text = std::fs::read_to_string(&file)
-            .map_err(|e| CoreError::Skill(format!("cannot read {}: {e}", file.display())))?;
-        Ok(match split_frontmatter(&text) {
-            Some((_, body)) => body.trim_start().to_string(),
-            None => text,
-        })
+        Ok(strip_frontmatter(read_skill_md(&self.dir)?))
     }
 
     /// Files bundled with the skill, relative to its directory, sorted. Hidden
@@ -160,14 +170,14 @@ impl Skill {
     ///
     /// Refuses paths that leave the directory, through `..` or a symlink.
     pub fn read_file(&self, relative: &str) -> CoreResult<String> {
-        let rel = Path::new(relative);
-        if !is_plain_relative(rel) {
-            return Err(CoreError::Skill(format!(
-                "'{relative}' is not a path inside the skill"
-            )));
-        }
-        let missing =
-            || CoreError::Skill(format!("skill '{}' has no file '{relative}'", self.name));
+        let path = checked_path(relative)?;
+        decode_file(relative, self.read_local(&path)?)
+    }
+
+    /// Read `rel`, already checked by [`checked_path`], from the skill's
+    /// directory on disk, refusing a symlink out of it.
+    fn read_local(&self, rel: &str) -> CoreResult<Vec<u8>> {
+        let missing = || CoreError::Skill(format!("skill '{}' has no file '{rel}'", self.name));
         let base = self.dir.canonicalize().map_err(|_| missing())?;
         let path = base.join(rel).canonicalize().map_err(|_| missing())?;
         if !path.starts_with(&base) || !path.is_file() {
@@ -175,14 +185,180 @@ impl Skill {
         }
         let len = path.metadata().map(|m| m.len()).unwrap_or(0);
         if len > MAX_FILE_BYTES {
-            return Err(CoreError::Skill(format!(
-                "'{relative}' is too large to load ({len} bytes)"
-            )));
+            return Err(too_large(rel, len));
         }
-        let bytes = std::fs::read(&path).map_err(|_| missing())?;
-        String::from_utf8(bytes)
-            .map_err(|_| CoreError::Skill(format!("'{relative}' is not a text file")))
+        std::fs::read(&path).map_err(|_| missing())
     }
+}
+
+/// Where a [`SkillSet`] reads its skills' files from.
+///
+/// The default, [`LocalStorage`], reads each skill's `dir` on disk. Implement
+/// this to serve skills from elsewhere, such as a WebDAV server, and build the
+/// [`Skill`]s with [`Skill::parse`].
+///
+/// orion-core checks paths before asking and files after, so a storage need
+/// not: `path` is always relative, inside the skill, and `/`-separated; a file
+/// over [`MAX_FILE_BYTES`] is refused whatever comes back (a storage may refuse
+/// it sooner); and listed paths that are hidden or leave the skill are dropped.
+///
+/// ```
+/// use std::collections::HashMap;
+/// use std::sync::Arc;
+///
+/// use async_trait::async_trait;
+/// use orion_core::skills::{Skill, SkillSet, SkillStorage};
+/// use orion_core::{CoreError, CoreResult};
+///
+/// /// Skill files by skill name, then path.
+/// struct InMemory(HashMap<String, HashMap<String, String>>);
+///
+/// impl InMemory {
+///     fn get(&self, skill: &Skill, path: &str) -> CoreResult<String> {
+///         self.0
+///             .get(&skill.name)
+///             .and_then(|files| files.get(path))
+///             .cloned()
+///             .ok_or_else(|| CoreError::Skill(format!("no file '{path}'")))
+///     }
+/// }
+///
+/// #[async_trait]
+/// impl SkillStorage for InMemory {
+///     async fn skill_md(&self, skill: &Skill) -> CoreResult<String> {
+///         self.get(skill, "SKILL.md")
+///     }
+///     async fn read_file(&self, skill: &Skill, path: &str) -> CoreResult<Vec<u8>> {
+///         self.get(skill, path).map(String::into_bytes)
+///     }
+///     async fn list_files(&self, skill: &Skill) -> CoreResult<Vec<String>> {
+///         Ok(self.0.get(&skill.name).map(|f| f.keys().cloned().collect()).unwrap_or_default())
+///     }
+/// }
+///
+/// # #[tokio::main(flavor = "current_thread")]
+/// # async fn main() -> CoreResult<()> {
+/// let skill_md = "---\nname: notes\ndescription: Take notes.\n---\nWrite it down.\n".to_string();
+/// let my_storage = InMemory(HashMap::from([(
+///     "notes".to_string(),
+///     HashMap::from([("SKILL.md".to_string(), skill_md.clone())]),
+/// )]));
+///
+/// let skills = SkillSet::new([Skill::parse("dav://host/skills/notes".as_ref(), &skill_md)?])
+///     .with_storage(Arc::new(my_storage));
+/// let instructions = skills.load_async("notes", None).await?;
+/// assert_eq!(instructions, "Write it down.\n");
+/// # Ok(())
+/// # }
+/// ```
+#[async_trait]
+pub trait SkillStorage: Send + Sync {
+    /// The text of `skill`'s `SKILL.md`, frontmatter included.
+    async fn skill_md(&self, skill: &Skill) -> CoreResult<String>;
+
+    /// The bytes of the file at `path`, relative to `skill`'s directory.
+    async fn read_file(&self, skill: &Skill, path: &str) -> CoreResult<Vec<u8>>;
+
+    /// The files bundled with `skill`, relative to its directory and
+    /// `/`-separated, in any order.
+    async fn list_files(&self, skill: &Skill) -> CoreResult<Vec<String>>;
+}
+
+/// The default [`SkillStorage`]: each skill's `dir` on the local disk, read on
+/// tokio's blocking pool. Reads the same as [`Skill::body`], [`Skill::files`]
+/// and [`Skill::read_file`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LocalStorage;
+
+#[async_trait]
+impl SkillStorage for LocalStorage {
+    async fn skill_md(&self, skill: &Skill) -> CoreResult<String> {
+        let dir = skill.dir.clone();
+        blocking(move || read_skill_md(&dir)).await
+    }
+
+    async fn read_file(&self, skill: &Skill, path: &str) -> CoreResult<Vec<u8>> {
+        let (skill, path) = (skill.clone(), path.to_string());
+        blocking(move || skill.read_local(&path)).await
+    }
+
+    async fn list_files(&self, skill: &Skill) -> CoreResult<Vec<String>> {
+        let skill = skill.clone();
+        blocking(move || Ok(skill.files())).await
+    }
+}
+
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> CoreResult<T> + Send + 'static,
+) -> CoreResult<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| CoreError::Skill(e.to_string()))?
+}
+
+fn read_skill_md(dir: &Path) -> CoreResult<String> {
+    let file = dir.join(SKILL_FILE);
+    std::fs::read_to_string(&file)
+        .map_err(|e| CoreError::Skill(format!("cannot read {}: {e}", file.display())))
+}
+
+fn strip_frontmatter(text: String) -> String {
+    match split_frontmatter(&text) {
+        Some((_, body)) => body.trim_start().to_string(),
+        None => text,
+    }
+}
+
+/// `relative` as a `/`-separated path inside a skill, or an error if it leaves
+/// the skill.
+fn checked_path(relative: &str) -> CoreResult<String> {
+    let rel = Path::new(relative);
+    if !is_plain_relative(rel) {
+        return Err(CoreError::Skill(format!(
+            "'{relative}' is not a path inside the skill"
+        )));
+    }
+    let parts: Vec<_> = rel
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(part) => Some(part.to_string_lossy()),
+            _ => None,
+        })
+        .collect();
+    if parts.is_empty() {
+        return Err(CoreError::Skill(format!(
+            "'{relative}' is not a file in the skill"
+        )));
+    }
+    Ok(parts.join("/"))
+}
+
+/// A bundled file's bytes as text, refusing one over [`MAX_FILE_BYTES`].
+fn decode_file(relative: &str, bytes: Vec<u8>) -> CoreResult<String> {
+    let len = bytes.len() as u64;
+    if len > MAX_FILE_BYTES {
+        return Err(too_large(relative, len));
+    }
+    String::from_utf8(bytes)
+        .map_err(|_| CoreError::Skill(format!("'{relative}' is not a text file")))
+}
+
+fn too_large(relative: &str, len: u64) -> CoreError {
+    CoreError::Skill(format!("'{relative}' is too large to load ({len} bytes)"))
+}
+
+/// A storage's file list as [`Skill::files`] gives it: sorted, capped, without
+/// hidden entries, `SKILL.md` or paths that leave the skill.
+fn tidy_files(files: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = files
+        .iter()
+        .filter_map(|f| checked_path(f).ok())
+        .filter(|f| f != SKILL_FILE && f.split('/').all(|part| !part.starts_with('.')))
+        .collect();
+    out.sort();
+    out.dedup();
+    out.truncate(MAX_LISTED_FILES);
+    out
 }
 
 /// Split `---`-fenced YAML frontmatter from the rest of a Markdown file.
@@ -296,9 +472,29 @@ pub fn discover_skills(root: &Path, places: &[&str]) -> Vec<Skill> {
 }
 
 /// The skills an agent is offered, by unique name.
-#[derive(Debug, Clone, Default)]
+///
+/// Their files are read from disk unless the set is given a [`SkillStorage`]
+/// with [`with_storage`](Self::with_storage).
+#[derive(Clone, Default)]
 pub struct SkillSet {
     skills: Vec<Skill>,
+    storage: Option<Arc<dyn SkillStorage>>,
+}
+
+impl fmt::Debug for SkillSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SkillSet")
+            .field("skills", &self.skills)
+            .field(
+                "storage",
+                &if self.storage.is_some() {
+                    "custom"
+                } else {
+                    "local"
+                },
+            )
+            .finish()
+    }
 }
 
 impl SkillSet {
@@ -319,7 +515,22 @@ impl SkillSet {
                 fresh
             })
             .collect();
-        Self { skills }
+        Self {
+            skills,
+            storage: None,
+        }
+    }
+
+    /// The same set, reading its skills' files through `storage` instead of
+    /// from disk.
+    ///
+    /// Use the async [`load_async`](Self::load_async) and
+    /// [`expand_command_async`](Self::expand_command_async) with it; the sync
+    /// [`load`](Self::load) and [`expand_command`](Self::expand_command) only
+    /// read from disk and refuse a set with a storage.
+    pub fn with_storage(mut self, storage: Arc<dyn SkillStorage>) -> Self {
+        self.storage = Some(storage);
+        self
     }
 
     /// The skills, in order.
@@ -370,26 +581,39 @@ impl SkillSet {
 
     /// What `load_skill` returns: the instructions of skill `name` followed by
     /// its file list, or, with `file`, that bundled file.
+    ///
+    /// Reads from disk, blocking; a set with a [`SkillStorage`] refuses it and
+    /// needs [`load_async`](Self::load_async).
     pub fn load(&self, name: &str, file: Option<&str>) -> CoreResult<String> {
-        let skill = self
-            .get(name)
-            .ok_or_else(|| CoreError::Skill(format!("no skill named '{name}'")))?;
-        if let Some(file) = file.filter(|f| !f.trim().is_empty()) {
-            return skill.read_file(file.trim());
-        }
-        let mut out = skill.body()?;
-        let files = skill.files();
-        if !files.is_empty() {
-            out.push_str(&format!(
-                "\n\n---\nFiles in this skill (directory: {}). Load one with `load_skill` \
-                 and `file` set to its path:\n",
-                skill.dir.display()
+        if self.storage.is_some() {
+            return Err(CoreError::Skill(
+                "this skill set reads through a SkillStorage; use load_async".into(),
             ));
-            for f in files {
-                out.push_str(&format!("- {f}\n"));
-            }
         }
-        Ok(out)
+        let skill = self.find(name)?;
+        if let Some(file) = requested_file(file) {
+            return skill.read_file(file);
+        }
+        Ok(render_loaded(skill, skill.body()?, skill.files()))
+    }
+
+    /// [`load`](Self::load) through the set's [`SkillStorage`], or from disk
+    /// without blocking the runtime when it has none.
+    pub async fn load_async(&self, name: &str, file: Option<&str>) -> CoreResult<String> {
+        let skill = self.find(name)?;
+        let storage: &dyn SkillStorage = self.storage.as_deref().unwrap_or(&LocalStorage);
+        if let Some(file) = requested_file(file) {
+            let path = checked_path(file)?;
+            return decode_file(file, storage.read_file(skill, &path).await?);
+        }
+        let body = strip_frontmatter(storage.skill_md(skill).await?);
+        let files = tidy_files(storage.list_files(skill).await?);
+        Ok(render_loaded(skill, body, files))
+    }
+
+    fn find(&self, name: &str) -> CoreResult<&Skill> {
+        self.get(name)
+            .ok_or_else(|| CoreError::Skill(format!("no skill named '{name}'")))
     }
 
     /// The skill a `/name request` message names, and the request after it.
@@ -416,26 +640,48 @@ impl SkillSet {
     ///
     /// The message is the skill's instructions in a `<skill name="…">` block,
     /// then the request; [`parse_expanded`] reads it back.
+    ///
+    /// Reads from disk, blocking; a set with a [`SkillStorage`] needs
+    /// [`expand_command_async`](Self::expand_command_async).
     pub fn expand_command(&self, text: &str) -> CoreResult<Option<SkillCommand>> {
         let Some((skill, request)) = self.parse_command(text) else {
             return Ok(None);
         };
         let instructions = self.load(&skill.name, None)?;
-        let tag = skill.name.replace('"', "");
-        let ask = if request.is_empty() {
-            NO_REQUEST
-        } else {
-            request
-        };
-        Ok(Some(SkillCommand {
-            skill: skill.name.clone(),
-            request: request.to_string(),
-            message: format!(
-                "<skill name=\"{tag}\">\n{SKILL_PREAMBLE}\n\n{}\n</skill>\n\n{ask}",
-                instructions.trim_end()
-            ),
-        }))
+        Ok(Some(SkillCommand::new(skill, request, &instructions)))
     }
+
+    /// [`expand_command`](Self::expand_command) through the set's
+    /// [`SkillStorage`], or from disk without blocking the runtime when it has
+    /// none.
+    pub async fn expand_command_async(&self, text: &str) -> CoreResult<Option<SkillCommand>> {
+        let Some((skill, request)) = self.parse_command(text) else {
+            return Ok(None);
+        };
+        let instructions = self.load_async(&skill.name, None).await?;
+        Ok(Some(SkillCommand::new(skill, request, &instructions)))
+    }
+}
+
+/// The `file` argument of a load, if one was given.
+fn requested_file(file: Option<&str>) -> Option<&str> {
+    file.map(str::trim).filter(|f| !f.is_empty())
+}
+
+/// A loaded skill: its instructions, then the files it bundles.
+fn render_loaded(skill: &Skill, body: String, files: Vec<String>) -> String {
+    let mut out = body;
+    if !files.is_empty() {
+        out.push_str(&format!(
+            "\n\n---\nFiles in this skill (directory: {}). Load one with `load_skill` \
+             and `file` set to its path:\n",
+            skill.dir.display()
+        ));
+        for f in files {
+            out.push_str(&format!("- {f}\n"));
+        }
+    }
+    out
 }
 
 /// First line inside an expanded command's `<skill>` block.
@@ -452,6 +698,25 @@ pub struct SkillCommand {
     pub request: String,
     /// The message to send: the skill's instructions, then the request.
     pub message: String,
+}
+
+impl SkillCommand {
+    fn new(skill: &Skill, request: &str, instructions: &str) -> Self {
+        let tag = skill.name.replace('"', "");
+        let ask = if request.is_empty() {
+            NO_REQUEST
+        } else {
+            request
+        };
+        Self {
+            skill: skill.name.clone(),
+            request: request.to_string(),
+            message: format!(
+                "<skill name=\"{tag}\">\n{SKILL_PREAMBLE}\n\n{}\n</skill>\n\n{ask}",
+                instructions.trim_end()
+            ),
+        }
+    }
 }
 
 /// The skill name and request of a message made by
@@ -538,11 +803,10 @@ mod tool {
                 .as_str()
                 .ok_or_else(|| CoreError::Tool("missing 'name'".into()))?;
             let file = args["file"].as_str();
-            let skills = self.skills.clone();
-            let (n, f) = (name.to_string(), file.map(String::from));
-            let content = tokio::task::spawn_blocking(move || skills.load(&n, f.as_deref()))
+            let content = self
+                .skills
+                .load_async(name, file)
                 .await
-                .map_err(|e| CoreError::Tool(e.to_string()))?
                 .map_err(|e| CoreError::Tool(e.to_string()))?;
             Ok(ToolOutput::new(content).with_details(json!({ "skill": name, "file": file })))
         }

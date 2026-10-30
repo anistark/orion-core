@@ -69,3 +69,34 @@ then the request. Send it as the user turn: the model follows the skill without
 calling `load_skill`, which also helps small models that are unreliable at tool
 calls. `skills::parse_expanded(message)` returns the skill and request again,
 for showing a saved message the way the user typed it.
+
+## Skills that are not on disk
+
+A `SkillSet` reads its skills' files from disk by default (`LocalStorage`). To
+keep them elsewhere, such as on a WebDAV server, implement `SkillStorage`:
+
+- `skill_md(skill)` - the text of the skill's `SKILL.md`;
+- `read_file(skill, path)` - a bundled file's bytes;
+- `list_files(skill)` - the bundled files, in any order.
+
+Build each `Skill` from its `SKILL.md` text with `Skill::parse(dir, text)`, where
+`dir` names the skill wherever it lives, and hand the storage to the set:
+
+```rust
+let skills = SkillSet::new([Skill::parse("dav://host/skills/notes".as_ref(), &skill_md)?])
+    .with_storage(Arc::new(my_storage));
+let instructions = skills.load_async("notes", None).await?;
+```
+
+`load_skill` reads through the storage, and so do `SkillSet::load_async` and
+`expand_command_async`. The sync `load` and `expand_command` read only from
+disk, and return an error for a set with a storage.
+
+orion-core checks every read the same way, whatever the storage:
+
+- `path` is always relative, inside the skill and `/`-separated; anything else
+  is refused before the storage is asked;
+- a file over `MAX_FILE_BYTES` (256 KiB) is refused, so a storage may stop
+  reading early;
+- listed paths that are hidden, leave the skill or name `SKILL.md` are dropped,
+  and the rest are sorted.

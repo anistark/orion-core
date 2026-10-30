@@ -542,6 +542,20 @@ carries the skill's instructions in a `<skill name="…">` block followed by the
 request, ready to send as the user turn, so the model needs no tool call;
 `parse_expanded(message)` gets the skill and request back for display.
 
+Skills read from disk by default. To keep them elsewhere, such as on a WebDAV
+server, implement `SkillStorage` (`skill_md`, `read_file`, `list_files`), build
+each `Skill` from its `SKILL.md` text with `Skill::parse`, and hand the storage
+to the set. `load_skill` then reads through it, and so do the async
+`load_async` and `expand_command_async`; the sync `load` and `expand_command`
+stay disk-only. Whatever the storage, paths outside a skill and files over
+`MAX_FILE_BYTES` are refused.
+
+```rust
+let skills = SkillSet::new([Skill::parse("dav://host/skills/notes".as_ref(), &skill_md)?])
+    .with_storage(Arc::new(my_storage));
+let instructions = skills.load_async("notes", None).await?;
+```
+
 ### `plugins` - Plugin Marketplaces *(feature `plugins`)*
 
 Fetch a Claude Code marketplace catalog (`marketplace.json`, or a bare array of

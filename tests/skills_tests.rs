@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::Path;
 
-use orion_core::skills::{discover_skills, Skill, SkillSet};
+use orion_core::skills::{discover_skills, Skill, SkillSet, MAX_FILE_BYTES};
 
 fn write(path: &Path, text: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -191,6 +191,206 @@ async fn load_skill_tool_returns_instructions_and_files() {
         .await
         .is_err());
     assert!(tool.execute(json!({}), &ctx).await.is_err());
+}
+
+#[tokio::test]
+async fn async_loads_match_sync_ones_on_disk() {
+    let dir = fixture();
+    let set = SkillSet::new(discover_skills(dir.path(), &[]));
+    assert_eq!(
+        set.load_async("uv", None).await.unwrap(),
+        set.load("uv", None).unwrap()
+    );
+    assert_eq!(
+        set.load_async("uv", Some(" ./references/commands.md "))
+            .await
+            .unwrap(),
+        "uv add <pkg>\n"
+    );
+    assert!(set
+        .load_async("uv", Some("../ruff/SKILL.md"))
+        .await
+        .is_err());
+    assert_eq!(
+        set.expand_command_async("/uv add requests").await.unwrap(),
+        set.expand_command("/uv add requests").unwrap()
+    );
+
+    write(
+        &dir.path().join("skills/uv/big.txt"),
+        &"x".repeat(MAX_FILE_BYTES as usize + 1),
+    );
+    let err = set.load_async("uv", Some("big.txt")).await.unwrap_err();
+    assert!(err.to_string().contains("too large"), "{err}");
+}
+
+mod storage {
+    use std::collections::BTreeMap;
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use orion_core::skills::{Skill, SkillSet, SkillStorage, MAX_FILE_BYTES};
+    use orion_core::{CoreError, CoreResult};
+
+    /// Skill files held in memory, by skill name and path; records each path
+    /// it is asked for.
+    #[derive(Default)]
+    struct Memory {
+        files: BTreeMap<(String, String), Vec<u8>>,
+        asked: Mutex<Vec<String>>,
+    }
+
+    impl Memory {
+        fn with(mut self, skill: &str, path: &str, bytes: impl Into<Vec<u8>>) -> Self {
+            self.files.insert((skill.into(), path.into()), bytes.into());
+            self
+        }
+
+        fn get(&self, skill: &Skill, path: &str) -> CoreResult<Vec<u8>> {
+            self.asked.lock().unwrap().push(path.to_string());
+            self.files
+                .get(&(skill.name.clone(), path.to_string()))
+                .cloned()
+                .ok_or_else(|| CoreError::Skill(format!("no '{path}' on the server")))
+        }
+    }
+
+    #[async_trait]
+    impl SkillStorage for Memory {
+        async fn skill_md(&self, skill: &Skill) -> CoreResult<String> {
+            Ok(String::from_utf8(self.get(skill, "SKILL.md")?).unwrap())
+        }
+
+        async fn read_file(&self, skill: &Skill, path: &str) -> CoreResult<Vec<u8>> {
+            self.get(skill, path)
+        }
+
+        async fn list_files(&self, skill: &Skill) -> CoreResult<Vec<String>> {
+            let mut out: Vec<String> = self
+                .files
+                .keys()
+                .filter(|(name, _)| *name == skill.name)
+                .map(|(_, path)| path.clone())
+                .collect();
+            // A careless server: entries a skill must never list.
+            out.extend(["../escape.md", "/etc/hosts", "./guide.md"].map(String::from));
+            Ok(out)
+        }
+    }
+
+    const NOTES: &str =
+        "---\nname: notes\ndescription: Keep notes on WebDAV.\n---\n\n# Notes\n\nWrite it down.\n";
+
+    fn remote() -> (Arc<Memory>, SkillSet) {
+        let memory = Arc::new(
+            Memory::default()
+                .with("notes", "SKILL.md", NOTES)
+                .with("notes", "guide.md", "How to write notes.\n")
+                .with("notes", "refs/style.md", "Short lines.\n")
+                .with("notes", ".secret", "hidden")
+                .with("notes", "big.txt", vec![b'x'; MAX_FILE_BYTES as usize + 1])
+                .with("notes", "../escape.md", "outside"),
+        );
+        let skill = Skill::parse(Path::new("dav://host/skills/notes"), NOTES).unwrap();
+        let set = SkillSet::new([skill]).with_storage(memory.clone());
+        (memory, set)
+    }
+
+    #[test]
+    fn parse_builds_a_skill_without_reading_disk() {
+        let skill = Skill::parse(Path::new("dav://host/skills/notes"), NOTES).unwrap();
+        assert_eq!(skill.name, "notes");
+        assert_eq!(skill.description, "Keep notes on WebDAV.");
+        let unnamed = Skill::parse(Path::new("remote/fallback"), "no frontmatter").unwrap();
+        assert_eq!(unnamed.name, "fallback");
+        assert!(Skill::parse(Path::new("x"), "---\nname: [bad\n---\n").is_err());
+    }
+
+    #[tokio::test]
+    async fn loads_instructions_and_a_tidy_file_list_from_the_storage() {
+        let (_, set) = remote();
+        let loaded = set.load_async("notes", None).await.unwrap();
+        assert!(loaded.starts_with("# Notes\n\nWrite it down.\n"));
+        assert!(loaded.contains("directory: dav://host/skills/notes"));
+        let listed: Vec<&str> = loaded
+            .lines()
+            .filter_map(|l| l.strip_prefix("- "))
+            .collect();
+        assert_eq!(listed, ["big.txt", "guide.md", "refs/style.md"]);
+    }
+
+    #[tokio::test]
+    async fn reads_files_by_a_clean_path_inside_the_skill() {
+        let (memory, set) = remote();
+        assert_eq!(
+            set.load_async("notes", Some("./refs/./style.md"))
+                .await
+                .unwrap(),
+            "Short lines.\n"
+        );
+        assert_eq!(memory.asked.lock().unwrap().as_slice(), ["refs/style.md"]);
+
+        for outside in ["../escape.md", "/etc/hosts", "refs/../../escape.md", "."] {
+            assert!(
+                set.load_async("notes", Some(outside)).await.is_err(),
+                "{outside}"
+            );
+        }
+        assert_eq!(
+            memory.asked.lock().unwrap().len(),
+            1,
+            "never asked for those"
+        );
+
+        let err = set.load_async("notes", Some("big.txt")).await.unwrap_err();
+        assert!(err.to_string().contains("too large"), "{err}");
+        assert!(set.load_async("notes", Some("missing.md")).await.is_err());
+        assert!(set.load_async("nope", None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn expands_commands_through_the_storage() {
+        let (_, set) = remote();
+        let cmd = set
+            .expand_command_async("/notes jot this")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(cmd.skill, "notes");
+        assert!(cmd.message.contains("Write it down."));
+        assert!(cmd.message.ends_with("</skill>\n\njot this"));
+        assert!(set.expand_command_async("hello").await.unwrap().is_none());
+    }
+
+    #[test]
+    fn sync_loads_refuse_a_custom_storage() {
+        let (_, set) = remote();
+        assert!(set.load("notes", None).is_err());
+        assert!(set.expand_command("/notes").is_err());
+        assert!(set.expand_command("hello").unwrap().is_none());
+    }
+
+    #[cfg(feature = "tools")]
+    #[tokio::test]
+    async fn load_skill_tool_reads_through_the_storage() {
+        use orion_core::{Tool, ToolContext};
+        use serde_json::json;
+
+        let (_, set) = remote();
+        let tool = set.tool();
+        let ctx = ToolContext::detached("call-1", "load_skill");
+        let out = tool
+            .execute(json!({ "name": "notes", "file": "guide.md" }), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(out.content, "How to write notes.\n");
+        let err = tool
+            .execute(json!({ "name": "notes", "file": "../escape.md" }), &ctx)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::Tool(_)));
+    }
 }
 
 #[cfg(feature = "tools")]
