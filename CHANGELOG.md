@@ -21,6 +21,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - `Skill::parse` builds a skill from its `SKILL.md` text, without reading disk.
 
 ### Changed
+- **The MSRV is now Rust 1.95** (was 1.85). Building with an older toolchain
+  fails, so this ships in a minor release.
 - The `skills` feature now pulls in `async-trait`.
 - `async-trait` requires 0.1.92, whose generated code no longer trips clippy's
   `double_must_use` lint on current toolchains.

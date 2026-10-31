@@ -18,7 +18,7 @@ Or in `Cargo.toml`:
 orion-core = "0.8"
 ```
 
-The minimum supported Rust version is **1.85**.
+The minimum supported Rust version is **1.95**.
 
 ## Your first prompt
 

@@ -45,7 +45,7 @@ don't weigh on the core crate. Set `OPENAI_API_KEY` for a cloud endpoint.
 
 :::note
 Optional features like `http-backend` may require a newer toolchain than the
-crate's MSRV (Rust 1.85), which covers only the default feature set.
+crate's MSRV (Rust 1.95), which covers only the default feature set.
 :::
 
 ## Browse the source

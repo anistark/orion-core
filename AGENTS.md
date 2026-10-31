@@ -34,7 +34,7 @@ License: MIT © Kumar Anirudha
 │   └── openai_backend.rs       # Streaming OpenAI-compatible backend (http-backend feature)
 ├── tests/                      # Integration + property tests (context, prune, template, tool, long-running)
 ├── benches/context_bench.rs    # Criterion benchmarks for the context pipeline
-├── .github/workflows/ci.yml    # fmt + clippy + test on stable & MSRV 1.85
+├── .github/workflows/ci.yml    # fmt + clippy + test on stable & MSRV 1.95
 ├── justfile                    # Task runner commands
 └── AGENTS.md                   # This file
 ```
@@ -50,9 +50,9 @@ License: MIT © Kumar Anirudha
 
 ## Development
 - Use `just` as task runner (see `justfile`)
-- Minimum Rust version: 1.85 (covers the default feature set). `resolver = "3"`
+- Minimum Rust version: 1.95 (covers the default feature set). `resolver = "3"`
   makes Cargo pick dependency versions that still build on it, so check MSRV
-  with a real 1.85 toolchain first on `PATH`: `rustup run 1.85.0 cargo` alone
+  with a real 1.95 toolchain first on `PATH`: `rustup run 1.95.0 cargo` alone
   can still pick up another `rustc`.
 - Features: `tools` (default - `Tool` trait + execution loop + `async-trait`,
   and tokio's `macros` for `ToolContext::run_child`); `chat-backend` (default -

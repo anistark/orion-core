@@ -37,7 +37,7 @@ jobs:
         include:
           - rust: "stable"
             features: "--all-features"
-          - rust: "1.85.0"
+          - rust: "1.95.0"
             features: ""
     steps:
       - uses: actions/checkout@v5

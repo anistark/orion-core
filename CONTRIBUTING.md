@@ -7,7 +7,7 @@ contributions of all kinds are welcome.
 ## Getting started
 
 ```sh
-# Requires Rust 1.85+ (the crate's MSRV)
+# Requires Rust 1.95+ (the crate's MSRV)
 git clone https://github.com/anistark/orion-core
 cd orion-core
 
@@ -47,7 +47,7 @@ cargo test --doc                              # doctests
   bug fixes only. Any public API removal or rename goes in a minor bump.
 - `CoreError` and `AgentEvent` are `#[non_exhaustive]`: always match them with a
   wildcard arm so added variants don't break downstream builds.
-- **MSRV is Rust 1.85**, and raising it is a minor-version (never a patch)
+- **MSRV is Rust 1.95**, and raising it is a minor-version (never a patch)
   change. The MSRV guarantee covers the **default feature set** only - optional
   features such as `http-backend` pull a heavier dependency tree, may
   require a newer toolchain, and are exercised on stable rather than on MSRV.
