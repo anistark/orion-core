@@ -5,7 +5,7 @@ description = "Backend-agnostic agent harness for local LLM inference"
 authors = ["Kumar Anirudha <anirudhastark@gmail.com>"]
 license = "MIT"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.95"
 # Resolve dependencies to versions that still build on `rust-version`, so a
 # dependency raising its own floor cannot silently raise ours (resolver 3,
 # stable since Cargo 1.84).

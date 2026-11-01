@@ -14,7 +14,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/anistark/orion-core/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/anistark/orion-core/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/crates/d/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core)
 [![License: MIT](https://img.shields.io/crates/l/orion-core.svg?style=flat-square)](LICENSE)
-![MSRV](https://img.shields.io/badge/MSRV-1.85-blue?style=flat-square)
+![MSRV](https://img.shields.io/badge/MSRV-1.95-blue?style=flat-square)
 
 Bring your own model runtime - llama.cpp, MLX, cloud APIs, anything. Orion is published as the [`orion-core`](https://crates.io/crates/orion-core) crate.
 
@@ -647,7 +647,7 @@ Events flow upward through an unbounded channel (`tokio::sync::mpsc`). Your UI o
 Orion follows [SemVer](https://semver.org/). While `0.x`, a minor bump may
 carry breaking changes and a patch bump is additive/fixes only. `CoreError` and
 `AgentEvent` are `#[non_exhaustive]` - match them with a wildcard arm so new
-variants don't break your build. The MSRV is **Rust 1.85** (raised only in a
+variants don't break your build. The MSRV is **Rust 1.95** (raised only in a
 minor release), and that guarantee covers the default feature set; optional
 features like `http-backend` and `plugins` may need a newer toolchain. See
 [CONTRIBUTING.md](CONTRIBUTING.md#stability--versioning) for the full policy.
