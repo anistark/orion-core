@@ -421,7 +421,7 @@ Tool schemas are automatically injected into the system prompt when formatting c
 **Opting out.** The `Tool` trait and the execution loop live behind the default `tools` feature, which pulls in [`async-trait`](https://crates.io/crates/async-trait) and turns on tokio's `macros` feature, which `ToolContext::run_child` uses. Minimal consumers that only need plain chat can drop it:
 
 ```toml
-orion-core = { version = "0.9", default-features = false }
+orion-core = { version = "0.10", default-features = false }
 ```
 
 That also drops the default `chat-backend` feature and with it `ChatBackend`. Add `features = ["chat-backend"]` back if you drive a hosted chat API.

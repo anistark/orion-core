@@ -4,6 +4,8 @@ All notable changes to `orion-core` are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-03
+
 ### Added
 - **Skills from anywhere (feature `skills`).** A `SkillStorage` trait (`skill_md`, `read_file`, `list_files`, async) lets a host serve skills from somewhere other than the local disk, such as a WebDAV server. `SkillSet::with_storage` sets it, and `load_skill` reads through it. The default, `LocalStorage`, reads from disk as before. Whatever the storage, paths outside a skill and files over the now-public `MAX_FILE_BYTES` are refused, and listed files are cleaned up.
 - `SkillSet::load_async` and `expand_command_async`, which read through the storage, or from disk without blocking the runtime. The sync `load` and `expand_command` still read from disk, and return an error for a set with a storage.
@@ -13,6 +15,9 @@ All notable changes to `orion-core` are documented here. The format is based on 
 - **The MSRV is now Rust 1.95** (was 1.85). Building with an older toolchain fails, so this ships in a minor release.
 - The `skills` feature now pulls in `async-trait`.
 - `async-trait` requires 0.1.92, whose generated code no longer trips clippy's `double_must_use` lint on current toolchains.
+
+### Documented
+- `cargo doc --features http-backend` builds without warnings again: a link in the `backends` module docs named a target rustdoc already resolves.
 
 ## [0.9.0] - 2026-10-23
 
