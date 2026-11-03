@@ -2,7 +2,7 @@
 name = "orion-core"
 version = "0.9.0"
 description = "Backend-agnostic agent harness for local LLM inference"
-authors = ["Kumar Anirudha <anirudhastark@gmail.com>"]
+authors = ["Kumar Anirudha <orion@anirudha.dev>"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.95"

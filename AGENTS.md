@@ -1,15 +1,10 @@
-# Orion - Project Instructions
+# Orion: Project Instructions
 
 ## About
-Orion (full name: **Orion Agent Harness**) is a backend-agnostic agent harness
-for local LLM inference, published as the `orion-core` crate. It owns
-the conversation loop - context management, token budgets, streaming events, chat
-templates, and an automatic tool-execution loop - and leaves inference to you:
-implement the `LlmBackend` trait for any engine (llama.cpp, MLX, a cloud API).
-Pure Rust library, no `tauri`/`llama`/app coupling.
+Orion (full name: **Orion Agent Harness**) is a backend-agnostic agent harness for local LLM inference, published as the `orion-core` crate. It owns the conversation loop (context management, token budgets, streaming events, chat templates, and an automatic tool-execution loop) and leaves inference to you: implement the `LlmBackend` trait for any engine (llama.cpp, MLX, a cloud API). Pure Rust library, no `tauri`/`llama`/app coupling.
 
-Repository: https://github.com/anistark/orion-core
-License: MIT © Kumar Anirudha
+- Repository: https://github.com/anistark/orion-core
+- License: MIT © Kumar Anirudha
 
 ## Project Structure
 ```sh
@@ -40,41 +35,32 @@ License: MIT © Kumar Anirudha
 ```
 
 ## Documentation
-- ALWAYS update `CHANGELOG.md` when making user-facing or API changes - add
-  entries under `[Unreleased]`.
-- ALWAYS keep `README.md` current. Its code snippets are mirrored by
-  compile-checked doctests, so update both together and run `cargo test --doc`.
-- Every public item must be documented - `#![deny(missing_docs)]` and
-  `deny(rustdoc::broken_intra_doc_links)` are on. Keep `cargo doc` clean in both
-  default and `--no-default-features` builds.
+- ALWAYS update `CHANGELOG.md` when making user-facing or API changes: add entries under `[Unreleased]`.
+- ALWAYS keep `README.md` current. Its code snippets are mirrored by compile-checked doctests, so update both together and run `cargo test --doc`.
+- Every public item must be documented: `#![deny(missing_docs)]` and `deny(rustdoc::broken_intra_doc_links)` are on. Keep `cargo doc` clean in both default and `--no-default-features` builds.
 
 ## Development
 - Use `just` as task runner (see `justfile`)
-- Minimum Rust version: 1.95 (covers the default feature set). `resolver = "3"`
-  makes Cargo pick dependency versions that still build on it, so check MSRV
-  with a real 1.95 toolchain first on `PATH`: `rustup run 1.95.0 cargo` alone
-  can still pick up another `rustc`.
-- Features: `tools` (default - `Tool` trait + execution loop + `async-trait`,
-  and tokio's `macros` for `ToolContext::run_child`); `chat-backend` (default -
-  the `ChatBackend` trait, `async-trait`); `http-backend` (optional `reqwest`,
-  `OpenAiHttpBackend`, gates the OpenAI example); `skills` (optional
-  `serde_norway`, `skills` module); `plugins` (implies `skills`, optional
-  `reqwest`, runs `git`; `plugins` module). Tool-call parsing and
-  `ToolSchema` stay available with `--no-default-features`.
+- Minimum Rust version: 1.95 (covers the default feature set). `resolver = "3"` makes Cargo pick dependency versions that still build on it, so check MSRV with a real 1.95 toolchain first on `PATH`: `rustup run 1.95.0 cargo` alone can still pick up another `rustc`.
+- Features:
+  - `tools` (default: `Tool` trait + execution loop + `async-trait`, and tokio's `macros` for `ToolContext::run_child`)
+  - `chat-backend` (default: the `ChatBackend` trait, `async-trait`)
+  - `http-backend` (optional `reqwest`, `OpenAiHttpBackend`, gates the OpenAI example)
+  - `skills` (optional `serde_norway`, `skills` module)
+  - `plugins` (implies `skills`, optional `reqwest`, runs `git`, `plugins` module)
+- Tool-call parsing and `ToolSchema` stay available with `--no-default-features`.
 - Clean code, proper naming, minimal comments, proper docstrings
 - Avoid over-commenting. Add only useful comments like docstrings, TODOs and NOTEs.
 - Latest stable dependency versions
 - After completing a set of tasks, run these checks:
-  - `just format` - `cargo fmt`
-  - `just lint` - `cargo clippy --all-targets -- -D warnings`
-  - `just check` - `cargo check`
-  - `just test` - `cargo test`
+  - `just format`: `cargo fmt`
+  - `just lint`: `cargo clippy --all-targets -- -D warnings`
+  - `just check`: `cargo check`
+  - `just test`: `cargo test`
 
 ## Stability
-- Follows [SemVer](https://semver.org/). While `0.x`, a minor bump may carry
-  breaking changes and a patch bump is additive/fixes only.
-- `CoreError` and `AgentEvent` are `#[non_exhaustive]` - keep them that way and
-  match with a wildcard arm.
+- Follows [SemVer](https://semver.org/). While `0.x`, a minor bump may carry breaking changes and a patch bump is additive/fixes only.
+- `CoreError` and `AgentEvent` are `#[non_exhaustive]`. Keep them that way and match with a wildcard arm.
 - MSRV is raised only in a minor release. See `CONTRIBUTING.md` for the full policy.
 
 ## Git
@@ -84,11 +70,10 @@ License: MIT © Kumar Anirudha
 
 ## Publishing
 - Bump the version in `Cargo.toml`, update `CHANGELOG.md`, then:
-  - `just publish-dry` - `cargo publish --dry-run` (verify the package)
-  - `just publish` - `cargo publish` to crates.io
+  - `just publish-dry`: `cargo publish --dry-run` (verify the package)
+  - `just publish`: `cargo publish` to crates.io
 - Confirm docs.rs builds and tag the release after publishing.
 
 ## Project
 - Open source, MIT licensed
 - Ask instead of assuming when confused
-```

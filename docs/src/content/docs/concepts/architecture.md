@@ -3,16 +3,11 @@ title: Architecture
 description: How the agent, context pipeline, backend, and event stream fit together.
 ---
 
-A model on its own is inert - it reads tokens and predicts the next ones. The
-*harness* is everything wrapped around it: the environment prompts and tools
-flow into, and useful behavior flows back out of. It's the part your users
-actually touch; the model never does directly.
+A model on its own is inert: it reads tokens and predicts the next ones. The *harness* is everything wrapped around it: the environment prompts and tools flow into, and useful behavior flows back out of. It's the part your users actually touch. The model never does directly.
 
-![A model is a network in a box; the agent harness is the environment wrapped around it, the thing users interact with.](../../../assets/diagrams/agent-harness-environment.png)
+![A model is a network in a box. The agent harness is the environment wrapped around it, the thing users interact with.](../../../assets/diagrams/agent-harness-environment.png)
 
-Orion sits between your application and your inference engine. You own the
-top (UI/app) and the bottom (the model runtime); Orion owns the middle -
-the orchestration that turns a prompt into a streamed, tool-augmented answer.
+Orion sits between your application and your inference engine. You own the top (UI/app) and the bottom (the model runtime). Orion owns the middle: the orchestration that turns a prompt into a streamed, tool-augmented answer.
 
 ```text
 ┌──────────────────────────────────────────────────┐
@@ -41,45 +36,24 @@ the orchestration that turns a prompt into a streamed, tool-augmented answer.
 
 ![The Orion stack from top to bottom: your app, the agent, the context pipeline, the LlmBackend trait, and your engine.](../../../assets/diagrams/orion-core-stack.png)
 
-*You write the top (your app) and the bottom (your engine). Orion is everything
-in between - and the only seam that matters is the backend trait: `LlmBackend`,
-or `ChatBackend` for a hosted chat API.*
+*You write the top (your app) and the bottom (your engine). Orion is everything in between, and the only seam that matters is the backend trait: `LlmBackend`, or `ChatBackend` for a hosted chat API.*
 
 ## The loop
 
 A single call to `Agent::prompt` drives the whole cycle:
 
-1. **Append** the user message to the conversation, after settling any tool
-   call a saved conversation left without a result and reading whatever is
-   waiting in the [inbox](../long-running/#the-inbox).
-2. **Prepare context** - the pipeline prunes old messages to fit the token
-   budget and formats the survivors into a prompt string using the active chat
-   template (injecting tool schemas if any tools are registered).
-3. **Generate** - the backend streams tokens, which surface as `MessageDelta`
-   events in real time. The inbox is read again before every later
-   generation, so a message pushed mid-run is seen on the next step.
-4. **Tool loop** - if the model emitted tool calls, the agent runs the matching
-   tools, appends their results, and loops back to step 2. This repeats until
-   the model returns a tool-free answer with nothing new in the inbox, the
-   `AgentConfig::max_tool_iterations` cap (default 8) is reached, or the run
-   pauses on pending tool calls (`AgentConfig::pause_on_pending`).
-5. **Finish** - the final assistant message lands and the call returns.
+1. **Append** the user message to the conversation, after settling any tool call a saved conversation left without a result and reading whatever is waiting in the [inbox](../long-running/#the-inbox).
+2. **Prepare context**: the pipeline prunes old messages to fit the token budget and formats the survivors into a prompt string using the active chat template (injecting tool schemas if any tools are registered).
+3. **Generate**: the backend streams tokens, which surface as `MessageDelta` events in real time. The inbox is read again before every later generation, so a message pushed mid-run is seen on the next step.
+4. **Tool loop**: if the model emitted tool calls, the agent runs the matching tools, appends their results, and loops back to step 2. This repeats until the model returns a tool-free answer with nothing new in the inbox, the `AgentConfig::max_tool_iterations` cap (default 8) is reached, or the run pauses on pending tool calls (`AgentConfig::pause_on_pending`).
+5. **Finish**: the final assistant message lands and the call returns.
 
-`Agent::resume` runs the same loop from step 2 without a new user message. See
-[Long-running work](../long-running/).
+`Agent::resume` runs the same loop from step 2 without a new user message. See [Long-running work](../long-running/).
 
 ## Events flow upward
 
-Every meaningful step emits an [`AgentEvent`](../events/) through an unbounded
-channel (`tokio::sync::mpsc`). Your UI or application layer subscribes and
-reacts in real time - streaming tokens to the screen, showing tool progress, or
-rendering the live context-budget gauge. The agent never touches your UI
-directly; it only emits events.
+Every meaningful step emits an [`AgentEvent`](../events/) through an unbounded channel (`tokio::sync::mpsc`). Your UI or application layer subscribes and reacts in real time, streaming tokens to the screen, showing tool progress, or rendering the live context-budget gauge. The agent never touches your UI directly. It only emits events.
 
 ## Backend-agnostic by design
 
-Orion knows nothing about your model runtime. It calls three methods on
-the [`LlmBackend`](../backend/) trait and orchestrates everything else. That
-keeps the harness identical whether you run a local GGUF model through
-llama.cpp, an MLX model on Apple silicon, or a remote OpenAI-compatible
-endpoint.
+Orion knows nothing about your model runtime. It calls three methods on the [`LlmBackend`](../backend/) trait and orchestrates everything else. That keeps the harness identical whether you run a local GGUF model through llama.cpp, an MLX model on Apple silicon, or a remote OpenAI-compatible endpoint.

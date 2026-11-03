@@ -22,9 +22,7 @@ The minimum supported Rust version is **1.95**.
 
 ## Your first prompt
 
-Orion is backend-agnostic: you implement the `LlmBackend` trait for your
-inference engine, then drive the agent. The example below uses a mock backend
-that streams a canned reply, so the whole loop runs end to end.
+Orion is backend-agnostic: you implement the `LlmBackend` trait for your inference engine, then drive the agent. The example below uses a mock backend that streams a canned reply, so the whole loop runs end to end.
 
 ```rust
 use std::sync::Arc;
@@ -65,15 +63,11 @@ agent.prompt("What is Rust?", backend, tx).await?;
 consumer.await?;
 ```
 
-The agent emits an [`AgentEvent`](../../concepts/events/) stream as it works:
-message deltas as tokens arrive, tool-execution events, and a context-budget
-report before each model call.
+The agent emits an [`AgentEvent`](../../concepts/events/) stream as it works: message deltas as tokens arrive, tool-execution events, and a context-budget report before each model call.
 
 ## Don't want to manage the channel?
 
-`agent.prompt_stream(text, backend)` creates the channel for you and hands back
-`(receiver, future)`. Drive the future (e.g. with `tokio::join!`) while you
-drain the receiver:
+`agent.prompt_stream(text, backend)` creates the channel for you and hands back `(receiver, future)`. Drive the future (e.g. with `tokio::join!`) while you drain the receiver:
 
 ```rust
 let (mut rx, fut) = agent.prompt_stream("What is Rust?", backend);
@@ -101,27 +95,17 @@ See [Examples](../../reference/examples/) for what each one demonstrates.
 
 ## Feature flags
 
-The `tools` feature is **on by default** and pulls in
-[`async-trait`](https://crates.io/crates/async-trait) and tokio's `macros`
-feature. Minimal consumers that
-only need plain chat can drop it:
+The `tools` feature is **on by default** and pulls in [`async-trait`](https://crates.io/crates/async-trait) and tokio's `macros` feature. Minimal consumers that only need plain chat can drop it:
 
 ```toml
 orion-core = { version = "0.8", default-features = false }
 ```
 
-Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`, `ToolSchema`) stays
-available either way - only the `Tool` trait and the execution loop require the
-feature. See [Tools](../../concepts/tools/) for details.
+Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`, `ToolSchema`) stays available either way. Only the `Tool` trait and the execution loop require the feature. See [Tools](../../concepts/tools/) for details.
 
-`default-features = false` also drops the default `chat-backend` feature, and
-with it [`ChatBackend`](../../concepts/backend/#hosted-chat-apis-chatbackend). Add
-`features = ["chat-backend"]` back if you drive a hosted chat API.
+`default-features = false` also drops the default `chat-backend` feature, and with it [`ChatBackend`](../../concepts/backend/#hosted-chat-apis-chatbackend). Add `features = ["chat-backend"]` back if you drive a hosted chat API.
 
-The `http-backend` feature is **off by default**. Enable it for the supported
-[`OpenAiHttpBackend`](../../concepts/backend/#ready-made-the-openai-compatible-http-backend),
-a streaming client for any OpenAI-compatible server; it pulls in a blocking HTTP
-client, so it stays opt-in:
+The `http-backend` feature is **off by default**. Enable it for the supported [`OpenAiHttpBackend`](../../concepts/backend/#ready-made-the-openai-compatible-http-backend), a streaming client for any OpenAI-compatible server. It pulls in a blocking HTTP client, so it stays opt-in:
 
 ```toml
 orion-core = { version = "0.8", features = ["http-backend"] }
@@ -129,6 +113,6 @@ orion-core = { version = "0.8", features = ["http-backend"] }
 
 ## Next steps
 
-- [Architecture](../../concepts/architecture/) - how the pieces fit together.
-- [Backend](../../concepts/backend/) - the one trait you implement (`LlmBackend` or `ChatBackend`).
-- [Tools](../../concepts/tools/) - give the model abilities.
+- [Architecture](../../concepts/architecture/): how the pieces fit together.
+- [Backend](../../concepts/backend/): the one trait you implement (`LlmBackend` or `ChatBackend`).
+- [Tools](../../concepts/tools/): give the model abilities.

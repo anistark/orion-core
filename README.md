@@ -7,18 +7,13 @@
 
 <h1 align="center">Orion</h1>
 
-<p align="center"><em>The Orion Agent Harness - a backend-agnostic agent harness for local LLM inference.</em></p>
+<p align="center"><em>The Orion Agent Harness: a backend-agnostic agent harness for local LLM inference.</em></p>
 
-[![Crates.io](https://img.shields.io/crates/v/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core)
-[![docs.rs](https://img.shields.io/docsrs/orion-core?style=flat-square)](https://docs.rs/orion-core)
-[![CI](https://img.shields.io/github/actions/workflow/status/anistark/orion-core/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/anistark/orion-core/actions/workflows/ci.yml)
-[![Downloads](https://img.shields.io/crates/d/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core)
-[![License: MIT](https://img.shields.io/crates/l/orion-core.svg?style=flat-square)](LICENSE)
-![MSRV](https://img.shields.io/badge/MSRV-1.95-blue?style=flat-square)
+[![Crates.io](https://img.shields.io/crates/v/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core) [![docs.rs](https://img.shields.io/docsrs/orion-core?style=flat-square)](https://docs.rs/orion-core) [![CI](https://img.shields.io/github/actions/workflow/status/anistark/orion-core/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/anistark/orion-core/actions/workflows/ci.yml) [![Downloads](https://img.shields.io/crates/d/orion-core.svg?style=flat-square)](https://crates.io/crates/orion-core) [![License: MIT](https://img.shields.io/crates/l/orion-core.svg?style=flat-square)](LICENSE) ![MSRV](https://img.shields.io/badge/MSRV-1.95-blue?style=flat-square)
 
-Bring your own model runtime - llama.cpp, MLX, cloud APIs, anything. Orion is published as the [`orion-core`](https://crates.io/crates/orion-core) crate.
+Bring your own model runtime: llama.cpp, MLX, cloud APIs, anything. Orion is published as the [`orion-core`](https://crates.io/crates/orion-core) crate.
 
-Orion handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer - see [`tools`](#tools---give-the-model-abilities)).
+Orion handles the conversation loop so you don't have to: context management, token budgets, streaming events, chat formatting, and an automatic tool-execution loop (the agent parses tool calls, runs your tools, feeds the results back, and repeats until the model gives a final answer). See [`tools`](#tools-give-the-model-abilities).
 
 ## How It Works
 
@@ -36,7 +31,7 @@ Agent.inbox() reaches the agent mid-run (read before every model call),
 and Agent.resume() carries a conversation on without new user text.
 ```
 
-You implement one backend trait for your inference engine - `LlmBackend` for a local engine fed a formatted prompt, or `ChatBackend` for a hosted chat API fed messages - and Orion handles everything above it.
+You implement one backend trait for your inference engine (`LlmBackend` for a local engine fed a formatted prompt, or `ChatBackend` for a hosted chat API fed messages), and Orion handles everything above it.
 
 ## Quick Start
 
@@ -79,15 +74,15 @@ agent.prompt("What is Rust?", backend, tx).await?;
 consumer.await?;
 ```
 
-> A complete, runnable version lives in [`examples/mock_backend.rs`](examples/mock_backend.rs) - try it with `cargo run --example mock_backend`.
+> A complete, runnable version lives in [`examples/mock_backend.rs`](examples/mock_backend.rs). Try it with `cargo run --example mock_backend`.
 
-> Don't want to manage the channel yourself? `agent.prompt_stream(text, backend)` creates it for you and hands back `(receiver, future)` - drive the future (e.g. with `tokio::join!`) while you drain the receiver.
+> Don't want to manage the channel yourself? `agent.prompt_stream(text, backend)` creates it for you and hands back `(receiver, future)`. Drive the future (e.g. with `tokio::join!`) while you drain the receiver.
 
-> For a real over-the-wire backend, enable the `http-backend` feature and use the supported [`OpenAiHttpBackend`](src/backends.rs) - a streaming OpenAI-compatible `/v1/chat/completions` client that works against OpenAI, llama.cpp `llama-server`, vLLM, LM Studio, and Ollama by changing only the base URL. [`examples/openai_backend.rs`](examples/openai_backend.rs) drives it end to end; run with `cargo run --example openai_backend --features http-backend`.
+> For a real over-the-wire backend, enable the `http-backend` feature and use the supported [`OpenAiHttpBackend`](src/backends.rs), a streaming OpenAI-compatible `/v1/chat/completions` client that works against OpenAI, llama.cpp `llama-server`, vLLM, LM Studio, and Ollama by changing only the base URL. [`examples/openai_backend.rs`](examples/openai_backend.rs) drives it end to end. Run with `cargo run --example openai_backend --features http-backend`.
 
 ## Modules
 
-### `agent` - The Orchestrator
+### `agent`: The Orchestrator
 
 The `Agent` struct is the main entry point. It owns the conversation state and drives the prompt → LLM → response loop.
 
@@ -126,7 +121,7 @@ agent.inbox().push("Also check the README.");
 agent.resume(backend, tx).await?;
 ```
 
-### `backend` - Bring Your Own LLM
+### `backend`: Bring Your Own LLM
 
 Implement the `LlmBackend` trait to plug in any inference engine:
 
@@ -165,7 +160,7 @@ impl LlmBackend for LlamaCppBackend {
 }
 ```
 
-The backend runs on a blocking thread - no async required. Orion handles the async orchestration.
+The backend runs on a blocking thread: no async required. Orion handles the async orchestration.
 
 **Hosted chat APIs: `ChatBackend`** *(feature `chat-backend`, on by default)*. A hosted API takes a list of messages and applies the model's own chat template, so handing it Orion's already-formatted prompt either templates twice or collapses every turn into one user message. Implement `ChatBackend` instead: the agent skips its own templating and hands you the system prompt and the pruned messages. Pruning, the tool loop and the event stream are unchanged, and it is async, since the work is I/O.
 
@@ -197,11 +192,11 @@ let backend: Arc<dyn ChatBackend> = Arc::new(HostedApi);
 let reply = agent.send("Hello", backend).await?;
 ```
 
-`agent.prompt` and `agent.send` take either kind: an `Arc<dyn LlmBackend>` and an `Arc<dyn ChatBackend>` both convert into the `Backend` enum. `send` is for a caller that is not streaming - it runs the turn and answers with the final assistant message, returning an `Err` for an error the run reported.
+`agent.prompt` and `agent.send` take either kind: an `Arc<dyn LlmBackend>` and an `Arc<dyn ChatBackend>` both convert into the `Backend` enum. `send` is for a caller that is not streaming. It runs the turn and answers with the final assistant message, returning an `Err` for an error the run reported.
 
-### `backends` - Ready-Made Backends *(feature `http-backend`)*
+### `backends`: Ready-Made Backends *(feature `http-backend`)*
 
-Don't want to implement `LlmBackend` yourself? Enable the `http-backend` feature for `OpenAiHttpBackend`, a streaming OpenAI-compatible client. One implementation targets OpenAI, llama.cpp `llama-server`, vLLM, LM Studio, and Ollama - change only the base URL:
+Don't want to implement `LlmBackend` yourself? Enable the `http-backend` feature for `OpenAiHttpBackend`, a streaming OpenAI-compatible client. One implementation targets OpenAI, llama.cpp `llama-server`, vLLM, LM Studio, and Ollama. Change only the base URL:
 
 ```rust
 use std::sync::Arc;
@@ -214,14 +209,14 @@ let backend: Arc<dyn LlmBackend> = Arc::new(OpenAiHttpBackend::new(config).unwra
 // agent.prompt("Hello", backend, tx).await?;
 ```
 
-Tokens stream through `on_token` as they arrive; the `GenerationResult` carries the real token counts from the response's `usage` block. Transport failures surface as `CoreError::BackendUnreachable` (no response - safe to retry or fail over), while an endpoint that answers with an error status surfaces as `CoreError::Backend`. It pulls in a blocking HTTP client, so it's off by default.
+Tokens stream through `on_token` as they arrive. The `GenerationResult` carries the real token counts from the response's `usage` block. Transport failures surface as `CoreError::BackendUnreachable` (no response: safe to retry or fail over), while an endpoint that answers with an error status surfaces as `CoreError::Backend`. It pulls in a blocking HTTP client, so it's off by default.
 
 `OpenAiHttpBackend` implements both traits, and which one you hand the agent decides what goes over the wire:
 
 - **As a `ChatBackend`** (`Arc<dyn ChatBackend>`) it posts a real message list, system prompt included, to `/v1/chat/completions`, and the server applies the model's own template. Use this against hosted APIs and chat servers. `with_endpoint` is not consulted on this path.
-- **As an `LlmBackend`** (`Arc<dyn LlmBackend>`) it sends Orion's formatted prompt, chosen with `.with_endpoint(...)`: `OpenAiEndpoint::Completions` posts it verbatim to `/v1/completions`, which is the right choice for a local instruct model on a completion endpoint. `OpenAiEndpoint::Chat` (the default) posts it to `/v1/chat/completions` as a single user message, which templates twice; prefer the `ChatBackend` path there.
+- **As an `LlmBackend`** (`Arc<dyn LlmBackend>`) it sends Orion's formatted prompt, chosen with `.with_endpoint(...)`: `OpenAiEndpoint::Completions` posts it verbatim to `/v1/completions`, which is the right choice for a local instruct model on a completion endpoint. `OpenAiEndpoint::Chat` (the default) posts it to `/v1/chat/completions` as a single user message, which templates twice. Prefer the `ChatBackend` path there.
 
-### `messages` - Conversation Data
+### `messages`: Conversation Data
 
 Messages support five roles covering the full agent lifecycle:
 
@@ -245,9 +240,9 @@ let result = Message::tool_result(
 
 **Roles:** `System`, `User`, `Assistant`, `ToolCall`, `ToolResult`
 
-Every message has an `id`, `timestamp`, and optional `token_count`, which the agent leaves unset for a host that counts tokens itself to fill in. Assistant messages can carry `tool_calls`; tool result messages carry a `tool_result`. A `ToolResult` has `tool_call_id`, `tool_name`, `content`, `is_error` and `pending`, which marks a placeholder for a result still to come and reads as false when missing, so conversations saved by earlier releases load unchanged.
+Every message has an `id`, `timestamp`, and optional `token_count`, which the agent leaves unset for a host that counts tokens itself to fill in. Assistant messages can carry `tool_calls`. Tool result messages carry a `tool_result`. A `ToolResult` has `tool_call_id`, `tool_name`, `content`, `is_error` and `pending`, which marks a placeholder for a result still to come and reads as false when missing, so conversations saved by earlier releases load unchanged.
 
-### `events` - Real-Time UI Updates
+### `events`: Real-Time UI Updates
 
 The agent emits events as it processes. Subscribe to these for building reactive UIs.
 
@@ -315,12 +310,12 @@ AgentEnd        { messages: [...] }
 | `Warning` | Non-fatal issue | Warning text |
 | `Error` | Fatal error | Error text |
 
-### `context` - Token Budget Management
+### `context`: Token Budget Management
 
 Handles the hard problem of fitting a conversation into a fixed-size context window.
 
 **What it does:**
-1. **Prunes** old messages when the conversation exceeds the token budget (sliding window - keeps system prompt + most recent messages)
+1. **Prunes** old messages when the conversation exceeds the token budget (sliding window: keeps system prompt + most recent messages)
 2. **Formats** the surviving messages into a ChatML prompt string
 3. **Reports** how many tokens are used and how many messages were pruned
 
@@ -350,50 +345,28 @@ println!(
 The agent calls this automatically before each LLM call. You don't need to call it directly unless you want custom control.
 
 **Prune strategies** (`ContextConfig::prune_strategy`):
-- `SlidingWindow` (default) - drop the oldest turns first to fit the budget.
-- `Summarize` - before pruning, the agent folds the oldest overflowing turns
-  into a single **pinned** summary message (one extra backend call), so their
-  gist survives instead of being dropped. Prior summaries are consolidated, so
-  exactly one accumulates. Best-effort: if summarization fails it falls back to
-  the sliding window.
+- `SlidingWindow` (default): drop the oldest turns first to fit the budget.
+- `Summarize`: before pruning, the agent folds the oldest overflowing turns into a single **pinned** summary message (one extra backend call), so their gist survives instead of being dropped. Prior summaries are consolidated, so exactly one accumulates. Best-effort: if summarization fails it falls back to the sliding window.
 
-**Pinned messages.** Any `Message` with `pinned == true` always survives pruning,
-regardless of budget or strategy. Build one with `Message::user(id, text).pinned()`,
-or toggle an existing message via `agent.set_pinned(message_id, true)`. Pruning is
-turn-aware, so a pinned message keeps its whole turn (no orphaned pairs).
+**Pinned messages.** Any `Message` with `pinned == true` always survives pruning, regardless of budget or strategy. Build one with `Message::user(id, text).pinned()`, or toggle an existing message via `agent.set_pinned(message_id, true)`. Pruning is turn-aware, so a pinned message keeps its whole turn (no orphaned pairs).
 
-### `template` - Chat Prompt Formats
+### `template`: Chat Prompt Formats
 
-Each model family wants its prompt wrapped a certain way. Orion ships a
-`ChatTemplate` for the common ones and picks the right one automatically.
+Each model family wants its prompt wrapped a certain way. Orion ships a `ChatTemplate` for the common ones and picks the right one automatically.
 
-**Supported families:** ChatML (default), Llama 3, Llama 2, Mistral / Mixtral,
-Gemma / Gemma 2, Phi-3, DeepSeek (LLM chat), Command-R / Command-R+, Alpaca, and
-Vicuna.
+**Supported families:** ChatML (default), Llama 3, Llama 2, Mistral / Mixtral, Gemma / Gemma 2, Phi-3, DeepSeek (LLM chat), Command-R / Command-R+, Alpaca, and Vicuna.
 
-- `detect_template(gguf_template)` - inspects a GGUF metadata template string and
-  returns the matching impl (falling back to ChatML when nothing matches).
-- `template_from_name(name)` - resolves a manual-override name (with common
-  aliases, e.g. `llama-2`, `phi-3`, `cohere`) to a template, or `None` for an
-  unimplemented family so the caller can fall back to auto-detection.
-- `Agent::with_template(config, template)` / `agent.set_template(template)` -
-  set or swap the template at runtime.
+- `detect_template(gguf_template)`: inspects a GGUF metadata template string and returns the matching impl (falling back to ChatML when nothing matches).
+- `template_from_name(name)`: resolves a manual-override name (with common aliases, e.g. `llama-2`, `phi-3`, `cohere`) to a template, or `None` for an unimplemented family so the caller can fall back to auto-detection.
+- `Agent::with_template(config, template)` / `agent.set_template(template)`: set or swap the template at runtime.
 
-Every template also implements the per-message and per-system formatting hooks
-the context pipeline needs for accurate token-budget accounting, and advertises
-tools through the same `tool_call` convention (see below).
+Every template also implements the per-message and per-system formatting hooks the context pipeline needs for accurate token-budget accounting, and advertises tools through the same `tool_call` convention (see below).
 
-### `tools` - Give the Model Abilities
+### `tools`: Give the Model Abilities
 
-`Agent::prompt` drives the full cycle automatically: it injects your tool
-schemas into the system prompt, parses the model's tool calls out of its reply,
-runs the matching tool, appends the result to the conversation, and loops back
-to the model until it returns a tool-free answer (bounded by
-`AgentConfig::max_tool_iterations`, default 8). Each step emits
-`ToolExecStart` / `ToolExecUpdate` / `ToolExecEnd` events.
+`Agent::prompt` drives the full cycle automatically: it injects your tool schemas into the system prompt, parses the model's tool calls out of its reply, runs the matching tool, appends the result to the conversation, and loops back to the model until it returns a tool-free answer (bounded by `AgentConfig::max_tool_iterations`, default 8). Each step emits `ToolExecStart` / `ToolExecUpdate` / `ToolExecEnd` events.
 
-**Tool-call convention.** Templates advertise - and [`parse_tool_calls`] reads -
-a fenced JSON block:
+**Tool-call convention.** Templates advertise (and [`parse_tool_calls`] reads) a fenced JSON block:
 
 ````text
 ```tool_call
@@ -401,11 +374,7 @@ a fenced JSON block:
 ```
 ````
 
-A JSON array invokes several tools in one turn. Parsing is lenient: a ` ```json `
-fence, a tag with stray punctuation around it such as ` ```tool_call> `, or a
-whole-message bare JSON object carrying both `name` and `arguments` also count,
-so smaller models still trigger tools when they drift from the exact format. Register tools with `agent.set_tools(vec![Box::new(MyTool)])`; with no
-tools registered, parsing is skipped entirely and replies pass through verbatim.
+A JSON array invokes several tools in one turn. Parsing is lenient: a ` ```json ` fence, a tag with stray punctuation around it such as ` ```tool_call> `, or a whole-message bare JSON object carrying both `name` and `arguments` also count, so smaller models still trigger tools when they drift from the exact format. Register tools with `agent.set_tools(vec![Box::new(MyTool)])`. With no tools registered, parsing is skipped entirely and replies pass through verbatim.
 
 Define tools the model can call. Each tool has a name, description, JSON Schema for parameters, and an async `execute` function. `execute` is handed a `ToolContext` for the call: its id, the run's stop flag (`ctx.is_aborted()`), `ctx.update(..)` for progress, and `ctx.run_child(..)` for running another agent (see [Long-running work](#long-running-work)).
 
@@ -449,46 +418,25 @@ agent.set_tools(vec![Box::new(ReadFileTool)]);
 
 Tool schemas are automatically injected into the system prompt when formatting context, and `Agent::prompt` runs the full tool call → execute → feed result → LLM responds cycle for you (see the section intro above).
 
-**Opting out.** The `Tool` trait and the execution loop live behind the default
-`tools` feature, which pulls in [`async-trait`](https://crates.io/crates/async-trait)
-and turns on tokio's `macros` feature, which `ToolContext::run_child` uses.
-Minimal consumers that only need plain chat can drop it:
+**Opting out.** The `Tool` trait and the execution loop live behind the default `tools` feature, which pulls in [`async-trait`](https://crates.io/crates/async-trait) and turns on tokio's `macros` feature, which `ToolContext::run_child` uses. Minimal consumers that only need plain chat can drop it:
 
 ```toml
 orion-core = { version = "0.9", default-features = false }
 ```
 
-That also drops the default `chat-backend` feature and with it `ChatBackend`; add `features = ["chat-backend"]` back if you drive a hosted chat API.
+That also drops the default `chat-backend` feature and with it `ChatBackend`. Add `features = ["chat-backend"]` back if you drive a hosted chat API.
 
-Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`) and `ToolSchema` stay
-available either way - only the `Tool` trait, `ToolOutput`, `ToolContext`,
-and `Agent::set_tools` require the feature.
+Tool-call *parsing* (`parse_tool_calls`, `ParsedToolCall`) and `ToolSchema` stay available either way. Only the `Tool` trait, `ToolOutput`, `ToolContext`, and `Agent::set_tools` require the feature.
 
 ### Long-running work
 
-`Agent::prompt` borrows the agent until the run ends, and a tool's `execute` holds the
-run until it returns. Four pieces let work outlast that.
+`Agent::prompt` borrows the agent until the run ends, and a tool's `execute` holds the run until it returns. Four pieces let work outlast that.
 
-**Pending results.** A tool that starts something slow can return
-`ToolOutput::pending("Started job 7. Its result will follow.")` instead of waiting.
-The placeholder is recorded as the call's result, so the model knows the work is
-under way, and the call is listed by `agent.pending_calls()` until the agent reads
-its real result from the inbox (not the moment you call `resolve`; a second result
-for the same call is dropped with a `Warning`).
+**Pending results.** A tool that starts something slow can return `ToolOutput::pending("Started job 7. Its result will follow.")` instead of waiting. The placeholder is recorded as the call's result, so the model knows the work is under way, and the call is listed by `agent.pending_calls()` until the agent reads its real result from the inbox (not the moment you call `resolve`). A second result for the same call is dropped with a `Warning`.
 
-**The inbox.** `agent.inbox()` is a cloneable handle for reaching the agent from
-outside its run. `inbox.push(text)` queues a user message, and
-`inbox.resolve(call_id, content)` or `inbox.reject(call_id, reason)` delivers a
-pending call's result. The agent reads it before each model call, and again when the
-model gives its final answer, so anything that lands mid-run is answered in that run.
+**The inbox.** `agent.inbox()` is a cloneable handle for reaching the agent from outside its run. `inbox.push(text)` queues a user message, and `inbox.resolve(call_id, content)` or `inbox.reject(call_id, reason)` delivers a pending call's result. The agent reads it before each model call, and again when the model gives its final answer, so anything that lands mid-run is answered in that run.
 
-**Resuming.** `agent.resume(backend, tx)` runs the loop with no new user text: after
-a result lands between runs, after a pause, or after restoring a saved conversation
-with `replace_messages`. Pending calls are worked out from the messages, so they
-survive a save, and a call a crashed run never finished is marked failed rather than
-run again. With `AgentConfig::pause_on_pending` set, a turn that leaves calls pending
-ends the run with `AgentEvent::Paused` instead of letting the model answer around
-them.
+**Resuming.** `agent.resume(backend, tx)` runs the loop with no new user text: after a result lands between runs, after a pause, or after restoring a saved conversation with `replace_messages`. Pending calls are worked out from the messages, so they survive a save, and a call a crashed run never finished is marked failed rather than run again. With `AgentConfig::pause_on_pending` set, a turn that leaves calls pending ends the run with `AgentEvent::Paused` instead of letting the model answer around them.
 
 ```rust
 let inbox = agent.inbox();
@@ -501,21 +449,13 @@ for call in agent.pending_calls() {
 agent.resume(backend, tx2).await?;
 ```
 
-**Child agents.** Inside a tool, `ctx.run_child(&mut child, task, backend)` runs
-another agent and answers with its reply. The child's events stream live into the
-parent's as `AgentEvent::Nested` under the call that started it, and stopping the
-parent stops the child.
+**Child agents.** Inside a tool, `ctx.run_child(&mut child, task, backend)` runs another agent and answers with its reply. The child's events stream live into the parent's as `AgentEvent::Nested` under the call that started it, and stopping the parent stops the child.
 
 > The code snippets in this README are mirrored by compile-checked [doctests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html) on the corresponding API items, so they can't silently drift from the real signatures. Run them with `cargo test --doc`.
 
-### `skills` - Agent Skills *(feature `skills`)*
+### `skills`: Agent Skills *(feature `skills`)*
 
-A skill is a folder holding a `SKILL.md`: YAML frontmatter with a `name` and a
-`description`, then Markdown instructions, often next to scripts and reference
-files. It is the format Claude Code plugins and other agents share. The model
-only sees each skill's name and description, so a large collection stays cheap;
-when a task matches, it calls the `load_skill` tool to read the instructions or
-one of the skill's files.
+A skill is a folder holding a `SKILL.md`: YAML frontmatter with a `name` and a `description`, then Markdown instructions, often next to scripts and reference files. It is the format Claude Code plugins and other agents share. The model only sees each skill's name and description, so a large collection stays cheap. When a task matches, it calls the `load_skill` tool to read the instructions or one of the skill's files.
 
 ```rust
 use orion_core::skills::{discover_skills, SkillSet};
@@ -531,24 +471,11 @@ agent.set_system_prompt(system_prompt);
 agent.set_tools(vec![Box::new(skills.tool())]); // with the `tools` feature
 ```
 
-`discover_skills(root, places)` reads skills the way Claude Code reads a
-plugin's `skills` setting: each place is a skill folder or a folder of them
-(`skills/` when none are given), plus a `SKILL.md` at the root. `load_skill`
-never reads outside a skill's folder.
+`discover_skills(root, places)` reads skills the way Claude Code reads a plugin's `skills` setting: each place is a skill folder or a folder of them (`skills/` when none are given), plus a `SKILL.md` at the root. `load_skill` never reads outside a skill's folder.
 
-Users can also pick a skill themselves with a `/name request` message.
-`skills.expand_command(text)?` returns `Some(SkillCommand)` whose `message`
-carries the skill's instructions in a `<skill name="…">` block followed by the
-request, ready to send as the user turn, so the model needs no tool call;
-`parse_expanded(message)` gets the skill and request back for display.
+Users can also pick a skill themselves with a `/name request` message. `skills.expand_command(text)?` returns `Some(SkillCommand)` whose `message` carries the skill's instructions in a `<skill name="…">` block followed by the request, ready to send as the user turn, so the model needs no tool call. `parse_expanded(message)` gets the skill and request back for display.
 
-Skills read from disk by default. To keep them elsewhere, such as on a WebDAV
-server, implement `SkillStorage` (`skill_md`, `read_file`, `list_files`), build
-each `Skill` from its `SKILL.md` text with `Skill::parse`, and hand the storage
-to the set. `load_skill` then reads through it, and so do the async
-`load_async` and `expand_command_async`; the sync `load` and `expand_command`
-stay disk-only. Whatever the storage, paths outside a skill and files over
-`MAX_FILE_BYTES` are refused.
+Skills read from disk by default. To keep them elsewhere, such as on a WebDAV server, implement `SkillStorage` (`skill_md`, `read_file`, `list_files`), build each `Skill` from its `SKILL.md` text with `Skill::parse`, and hand the storage to the set. `load_skill` then reads through it, and so do the async `load_async` and `expand_command_async`. The sync `load` and `expand_command` stay disk-only. Whatever the storage, paths outside a skill and files over `MAX_FILE_BYTES` are refused.
 
 ```rust
 let skills = SkillSet::new([Skill::parse("dav://host/skills/notes".as_ref(), &skill_md)?])
@@ -556,12 +483,9 @@ let skills = SkillSet::new([Skill::parse("dav://host/skills/notes".as_ref(), &sk
 let instructions = skills.load_async("notes", None).await?;
 ```
 
-### `plugins` - Plugin Marketplaces *(feature `plugins`)*
+### `plugins`: Plugin Marketplaces *(feature `plugins`)*
 
-Fetch a Claude Code marketplace catalog (`marketplace.json`, or a bare array of
-its entries such as [AgentHub](https://agenthub.nullorder.org)'s
-`plugins.json`), install plugins from git into a shared store, and read the two
-things they ship that work in any agent: MCP servers and skills.
+Fetch a Claude Code marketplace catalog (`marketplace.json`, or a bare array of its entries such as [AgentHub](https://agenthub.nullorder.org)'s `plugins.json`), install plugins from git into a shared store, and read the two things they ship that work in any agent: MCP servers and skills.
 
 ```rust
 use orion_core::plugins::{Catalog, PluginStore};
@@ -578,24 +502,13 @@ for (name, server) in &prepared.contents.mcp_servers {
 let installed = store.commit(prepared)?;
 ```
 
-- **The store** (`~/.agents/plugins` by default) keeps each plugin's git
-  checkout at a pinned commit under `<marketplace>/<plugin>/`, the list of
-  installs in `installed.json`, and the last catalog of each marketplace in
-  `catalogs/`. Any tool can read it.
-- **Two-step installs.** `prepare` fetches into a staging area (a shallow,
-  sparse checkout for plugins in a subfolder) and reports what the plugin ships,
-  with `${CLAUDE_PLUGIN_ROOT}` already pointing at its final folder, so you can
-  show the user exactly what its MCP servers run. `commit` moves it into place;
-  `cancel` throws it away. `latest_commit` tells you when an update is out.
-- **Nothing runs on install.** Fetching runs no plugin code, `git` never asks for
-  credentials, and only `https://` (and `file://`) repositories are fetched.
-  npm-sourced plugins are not supported yet.
-- `PluginContents` reads MCP servers from `plugin.json` (inline or a path),
-  a root `.mcp.json`, or the catalog entry; skills via `discover_skills`; and
-  lists the Claude Code-only parts (commands, agents, hooks, language servers)
-  so you can say what is left out.
+- **The store** (`~/.agents/plugins` by default) keeps each plugin's git checkout at a pinned commit under `<marketplace>/<plugin>/`, the list of installs in `installed.json`, and the last catalog of each marketplace in `catalogs/`. Any tool can read it.
+- **Two-step installs.** `prepare` fetches into a staging area (a shallow, sparse checkout for plugins in a subfolder) and reports what the plugin ships, with `${CLAUDE_PLUGIN_ROOT}` already pointing at its final folder, so you can show the user exactly what its MCP servers run. `commit` moves it into place. `cancel` throws it away. `latest_commit` tells you when an update is out.
+- **Nothing runs on install.** Fetching runs no plugin code, `git` never asks for credentials, and only `https://` (and `file://`) repositories are fetched. npm-sourced plugins are not supported yet.
+- `PluginContents` reads MCP servers from `plugin.json` (inline or a path), a root `.mcp.json`, or the catalog entry. It reads skills via `discover_skills`, and lists the Claude Code-only parts (commands, agents, hooks, language servers) so you can say what is left out.
+- To give an agent the tools of a plugin's HTTP servers (those with a `url`), connect to them with [Orion MCP](#orion-mcp).
 
-### `error` - Error Types
+### `error`: Error Types
 
 ```rust
 use orion_core::{CoreError, CoreResult};
@@ -612,6 +525,35 @@ CoreError::Plugin("git fetch failed".into())      // Catalogs and installs (feat
 ```
 
 All errors are serializable (implements `Serialize`) for easy transport over IPC.
+
+## Orion MCP
+
+[Orion MCP](https://github.com/anistark/orion-mcp), published as the `orion-mcp` crate, gives an agent the tools of any [Model Context Protocol](https://modelcontextprotocol.io) server. It connects over Streamable HTTP, lists the server's tools, and offers each one as a `Tool`, so the agent calls them like its own. It lives in its own crate so `orion-core` stays free of a network client, and it uses only the public API described above.
+
+```toml
+[dependencies]
+orion-core = "0.9"
+orion-mcp = "0.1"
+```
+
+```rust
+use orion_mcp::McpServer;
+
+let docs = McpServer::builder("https://mcp.example.com/mcp")
+    .prefix("docs") // the server's tools become docs__<name>
+    .bearer_token(token)
+    .connect()
+    .await?;
+
+let mut tools: Vec<Box<dyn Tool>> = vec![Box::new(MyTool)];
+tools.extend(docs.tools().await?);
+agent.set_tools(tools);
+```
+
+- **Failures are tool errors.** A server that is down, an error answer, or no answer in time is a `CoreError::Tool`, which the agent hands back to the model as an error result.
+- **Stopping works.** Stopping the agent's run stops the call, and the server is told it was cancelled.
+- **Headers stay private.** Tokens and headers come from the host, are sent with every request, and never appear in errors or `Debug` output.
+- **Same `orion-core`.** Use the `orion_core` that `orion-mcp` re-exports, or the same version, so its tools fit your agent.
 
 ## Architecture
 
@@ -644,13 +586,7 @@ Events flow upward through an unbounded channel (`tokio::sync::mpsc`). Your UI o
 
 ## Stability
 
-Orion follows [SemVer](https://semver.org/). While `0.x`, a minor bump may
-carry breaking changes and a patch bump is additive/fixes only. `CoreError` and
-`AgentEvent` are `#[non_exhaustive]` - match them with a wildcard arm so new
-variants don't break your build. The MSRV is **Rust 1.95** (raised only in a
-minor release), and that guarantee covers the default feature set; optional
-features like `http-backend` and `plugins` may need a newer toolchain. See
-[CONTRIBUTING.md](CONTRIBUTING.md#stability--versioning) for the full policy.
+Orion follows [SemVer](https://semver.org/). While `0.x`, a minor bump may carry breaking changes and a patch bump is additive/fixes only. `CoreError` and `AgentEvent` are `#[non_exhaustive]`: match them with a wildcard arm so new variants don't break your build. The MSRV is **Rust 1.95** (raised only in a minor release), and that guarantee covers the default feature set. Optional features like `http-backend` and `plugins` may need a newer toolchain. See [CONTRIBUTING.md](CONTRIBUTING.md#stability--versioning) for the full policy.
 
 ## License
 

@@ -20,7 +20,7 @@ export default defineConfig({
     starlight({
       title: 'Orion',
       description:
-        'Agent harness for local LLM inference. Backend-agnostic - bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).',
+        'Agent harness for local LLM inference. Backend-agnostic: bring your own model runtime (llama.cpp, MLX, cloud APIs, anything).',
       plugins: [starlightThemeRapide()],
       logo: {
         // Split light/dark: white-on-dark mark for dark theme, outline mark for light.
@@ -82,6 +82,10 @@ export default defineConfig({
             { label: 'Long-running work', slug: 'concepts/long-running' },
             { label: 'Errors', slug: 'concepts/errors' },
           ],
+        },
+        {
+          label: 'Ecosystem',
+          items: [{ label: 'Orion MCP', slug: 'ecosystem/orion-mcp' }],
         },
         {
           label: 'Reference',

@@ -3,18 +3,13 @@ title: Events
 description: The AgentEvent stream that powers real-time, reactive UIs.
 ---
 
-The agent emits events as it processes a turn. Subscribe to the
-`AgentEvent` stream to build reactive UIs - stream tokens to the screen, show
-tool progress, and render a live context-budget gauge.
+The agent emits events as it processes a turn. Subscribe to the `AgentEvent` stream to build reactive UIs: stream tokens to the screen, show tool progress, and render a live context-budget gauge.
 
-Events arrive through an unbounded channel (`tokio::sync::mpsc`). You either
-supply the sender to `agent.prompt(text, backend, tx)` or let
-`agent.prompt_stream(text, backend)` create the channel for you.
+Events arrive through an unbounded channel (`tokio::sync::mpsc`). You either supply the sender to `agent.prompt(text, backend, tx)` or let `agent.prompt_stream(text, backend)` create the channel for you.
 
 ![A turn emits AgentStart, then MessageDelta events as the N tokens stream in, a ContextBudget reading with used and max tokens, ToolExecStart/End when a tool runs, and finally AgentEnd.](../../../assets/diagrams/orion-core-events.png)
 
-*The shape of a turn: a small set of typed events your UI subscribes to, so it
-never has to reach inside the harness to know what's happening.*
+*The shape of a turn: a small set of typed events your UI subscribes to, so it never has to reach inside the harness to know what's happening.*
 
 ## A simple prompt
 
@@ -35,8 +30,7 @@ AgentEnd        { messages: [...] }
 
 ## A prompt with tool calls
 
-When the model calls a tool, the agent runs it, feeds the result back, and
-starts a new turn so the model can respond to it:
+When the model calls a tool, the agent runs it, feeds the result back, and starts a new turn so the model can respond to it:
 
 ```text
 AgentStart
@@ -61,14 +55,9 @@ TurnEnd         { message, tool_results: [] }
 AgentEnd        { messages: [...] }
 ```
 
-If an [approval hook](../tools/#gating-tool-calls) denies a call, `ToolDenied`
-takes the place of the `ToolExecStart` / `ToolExecUpdate` / `ToolExecEnd` trio -
-the tool never runs, but a tool-result message (marked `is_error`) is still
-appended so the model sees the refusal and the loop continues.
+If an [approval hook](../tools/#gating-tool-calls) denies a call, `ToolDenied` takes the place of the `ToolExecStart` / `ToolExecUpdate` / `ToolExecEnd` trio. The tool never runs, but a tool-result message (marked `is_error`) is still appended so the model sees the refusal and the loop continues.
 
-Pending results, the inbox and child agents add three more events: `ToolResolved`,
-`Paused` and `Nested`. [Long-running work](../long-running/#event-sequences) shows
-where they fall in a run.
+Pending results, the inbox and child agents add three more events: `ToolResolved`, `Paused` and `Nested`. [Long-running work](../long-running/#event-sequences) shows where they fall in a run.
 
 ## All event types
 
@@ -95,19 +84,11 @@ where they fall in a run.
 
 ## Metering usage with `GenerationStats`
 
-Exactly one `GenerationStats` is emitted per completed LLM generation within a
-run (`prompt()` or `resume()`), always before that turn's `MessageEnd` and before
-the closing `AgentEnd`. When tools fire, a single run spans several generations, so
-**summing** the `tokens_generated` / `prompt_tokens` across every
-`GenerationStats` in a run yields the exact per-run totals - no gaps, no double
-counting. This contract is pinned by tests, so cost dashboards and quotas can
-rely on it. (A generation that aborts or errors before completing produces no
-result and so emits no `GenerationStats`.)
+Exactly one `GenerationStats` is emitted per completed LLM generation within a run (`prompt()` or `resume()`), always before that turn's `MessageEnd` and before the closing `AgentEnd`. When tools fire, a single run spans several generations, so **summing** the `tokens_generated` / `prompt_tokens` across every `GenerationStats` in a run yields the exact per-run totals, with no gaps and no double counting. This contract is pinned by tests, so cost dashboards and quotas can rely on it. (A generation that aborts or errors before completing produces no result and so emits no `GenerationStats`.)
 
 ## Match with a wildcard arm
 
-`AgentEvent` is `#[non_exhaustive]`. Always include a `_ => {}` arm so new
-variants in a future minor release don't break your build:
+`AgentEvent` is `#[non_exhaustive]`. Always include a `_ => {}` arm so new variants in a future minor release don't break your build:
 
 ```rust
 while let Some(event) = rx.recv().await {
