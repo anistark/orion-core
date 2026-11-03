@@ -1,4 +1,4 @@
-//! Ready-made [`LlmBackend`](crate::LlmBackend) implementations.
+//! Ready-made [`LlmBackend`] implementations.
 //!
 //! Currently this is the OpenAI-compatible HTTP backend, [`OpenAiHttpBackend`],
 //! available behind the `http-backend` feature. It speaks the streaming
